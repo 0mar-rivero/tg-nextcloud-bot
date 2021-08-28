@@ -1,0 +1,47 @@
+{
+    "name": "TG NextCloud Bot",
+    "description": "This is a telegram bot to upload files to a NextCLoud",
+    "keywords": [
+      "telegram",
+      "nextcloud",
+      "downloader",
+      "telethon",
+      "bot",
+      "uploader"
+    ],
+    "success_url": "https://t.me/TNextCloud_Bot",
+    "website": "https://github.com/0mar-rivero/tg-nextcloud-bot",
+    "repository": "https://github.com/0mar-rivero/tg-nextcloud-bot",
+    "stack": "container",
+    "env": {
+      "BOT_TOKEN": {
+        "description": "Make a bot from https://t.me/BotFather and enter the token here.",
+        "value": ""
+      },
+      "API_ID": {
+        "description": "Get this value from https://my.telegram.org/apps",
+        "value": ""
+      },
+      "API_HASH": {
+        "description": "Get this value from https://my.telegram.org/apps",
+        "value": ""
+      },
+      "ADMIN_ID": {
+        "description": "Your(owner's) telegram id",
+        "value": ""
+      }
+    },
+    "addons": [
+    ],
+    "buildpacks": [{
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest"
+    }, {
+      "url": "heroku/python"
+    }],
+    "formation": {
+      "worker": {
+        "quantity": 1,
+        "size": "free"
+      }
+    }
+  }
