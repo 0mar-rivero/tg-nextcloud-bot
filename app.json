@@ -29,6 +29,10 @@
       "ADMIN_ID": {
         "description": "Your(owner's) telegram id",
         "value": ""
+      },
+      "CLOUD": {
+        "description": "Your owncloud url",
+        "value": "https://nube.uclv.cu/"
       }
     },
     "addons": [
