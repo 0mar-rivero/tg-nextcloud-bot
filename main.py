@@ -117,8 +117,10 @@ if __name__ == '__main__':
     async def add_user(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
         if chatter != admin_id:
+            await event.respond(event.pattern_match.group(1))
+            await event.respond(admin_id)
             return
-        user = (event.pattern_match.group(1));
+        user = event.pattern_match.group(1)
         auth_users[user] = {}
         await save_authusers()
         await event.respond('User added')
