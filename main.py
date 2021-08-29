@@ -166,7 +166,7 @@ if __name__ == '__main__':
         chatter = str(event.chat_id)
         if event.reply_to_msg_id is None:
             return
-        bc: Message = event.get_reply_message()
+        bc: Message = await event.get_reply_message()
         for user in auth_users.keys():
             if user == admin_id:
                 await bot.send_message(int(user), message=bc)
