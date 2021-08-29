@@ -164,9 +164,10 @@ if __name__ == '__main__':
     @bot.on(NewMessage(pattern='/broadcast'))
     async def broadcast(event: Union[NewMessage, Message]):
         chatter = str(event.chat_id)
+
         if event.reply_to_msg_id is None:
             return
-        bc: Message = await event.get_reply_message()
+        bc: Message = event.raw_text
         for user in auth_users.keys():
             if user == admin_id:
                 await bot.send_message(user, message=bc)
