@@ -66,7 +66,7 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             return
-        m: Message = await event.reply('Filer queued')
+        m: Message = await event.reply('File queued')
         async with get_lock(chatter):
             await m.delete()
             await real_upload(event)
@@ -98,7 +98,7 @@ if __name__ == '__main__':
         else:
             filename = event.file.name
 
-        r: Message = await event.respond(f'{filename} being downloaded')
+        r: Message = await event.reply(f'{filename} being downloaded')
 
         try:
             downpath = await event.download_media(downloads_path.joinpath(filename))
@@ -160,6 +160,16 @@ if __name__ == '__main__':
             auth_users[chatter]['password'] = resp.raw_text
             await save_authusers()
             await conv.send_message('User saved correctly, you may start using the bot')
+
+    @bot.on(NewMessage(pattern='/broadcast'))
+    async def broadcast(event: Union[NewMessage, Message]):
+        chatter = str(event.chat_id)
+        if event.reply_to_msg_id is None:
+            return
+        bc: Message = await event.get_reply_message()
+        for user in auth_users.keys():
+            if user == admin_id:
+                await bot.send_message(user, message=bc)
 
     @bot.on(NewMessage(pattern='/save'))
     async def savexd(event: Union[Message, NewMessage]):
