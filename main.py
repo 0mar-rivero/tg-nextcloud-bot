@@ -23,6 +23,7 @@ if __name__ == '__main__':
     api_hash: str
     bot_token: str
     auth_users: dict
+    lock_dict: dict
 
     async def load():
         global admin_id, api_id, api_hash, bot_token, cloud, auth_users
@@ -65,7 +66,18 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             return
-        user = auth_users[chatter]
+        m: Message = await event.reply('Filer queued')
+        async with get_lock(chatter):
+            await m.delete()
+            await real_upload(event)
+        
+    def get_lock(user: str) -> asyncio.Lock:
+        if not lock_dict.get(user):
+            lock_dict[user] = asyncio.Lock()
+        return lock_dict[user]
+
+    async def real_upload(event: Union[NewMessage.Event, Message]):
+        user = auth_users[str(event.chat_id)]
         if not event.file.name:
             async with bot.conversation(event.chat_id) as conv:
                 s: Message = await conv.send_message('File has no filename. Please Provide one.'
@@ -117,8 +129,6 @@ if __name__ == '__main__':
     async def add_user(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
         if chatter != admin_id:
-            await event.respond(event.pattern_match.group(1))
-            await event.respond(admin_id)
             return
         user = event.pattern_match.group(1)
         auth_users[user] = {}
