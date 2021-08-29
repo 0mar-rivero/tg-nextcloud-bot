@@ -23,7 +23,6 @@ if __name__ == '__main__':
     api_hash: str
     bot_token: str
     auth_users: dict
-    lock_dict: dict
 
     async def load():
         global admin_id, api_id, api_hash, bot_token, cloud, auth_users
@@ -45,6 +44,7 @@ if __name__ == '__main__':
     loading = asyncio.get_event_loop().run_until_complete(load())
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     downloads_path = Path(f'./downloads')
+    lock_dict = {}
 
     @bot.on(NewMessage(pattern='/start'))
     async def start(event: NewMessage.Event):
@@ -70,7 +70,7 @@ if __name__ == '__main__':
         async with get_lock(chatter):
             await m.delete()
             await real_upload(event)
-        
+
     def get_lock(user: str) -> asyncio.Lock:
         if not lock_dict.get(user):
             lock_dict[user] = asyncio.Lock()

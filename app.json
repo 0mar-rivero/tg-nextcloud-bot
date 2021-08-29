@@ -25,7 +25,7 @@
         "description": "Get this value from https://my.telegram.org/apps",
         "value": ""
       },
-      "ADMIN_ID": {
+      "ADMIN": {
         "description": "Your(owner's) telegram id",
         "value": ""
       },
