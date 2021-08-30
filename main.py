@@ -113,11 +113,13 @@ if __name__ == '__main__':
             if m.raw_text.startswith('/cancel'):
                 await conv.send_message('Ok, cancelled', reply_to=m)
                 return
+            await m.reply('ok')
             filepaths: List[str] = []
             for mes in m_download_list:
                 if not m.file.name:
                     filename = str(m_download_list.index(m)) + mes.file.ext
-                filename = mes.file.name
+                else:
+                    filename = mes.file.name
                 async with get_down_lock(chatter):
                     filepaths.append(await real_download(mes, r, filename=filename,
                                                          downpath=downloads_path.joinpath(folder, filename)))
