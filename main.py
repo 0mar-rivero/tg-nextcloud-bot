@@ -110,7 +110,7 @@ if __name__ == '__main__':
         os.makedirs(downloads_path, exist_ok=True)
         if filename in os.listdir(downloads_path):
             await reply.edit(f'{filename} already downloaded')
-            return downloads_path.joinpath(filename)
+            return downloads_path.joinpath('/' + filename)
         else:
             await reply.edit(f'{filename} being downloaded')
 
