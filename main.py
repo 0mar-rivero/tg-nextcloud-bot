@@ -90,6 +90,7 @@ if __name__ == '__main__':
 
     @bot.on(NewMessage(pattern=r'/zip\s(.+)'))
     async def zip_handler(event: Union[NewMessage.Event, Message]):
+        global zipping
         chatter = str(event.chat_id)
         if chatter not in auth_users.keys() or zipping:
             return
