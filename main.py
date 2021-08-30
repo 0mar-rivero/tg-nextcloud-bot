@@ -110,7 +110,7 @@ if __name__ == '__main__':
         os.makedirs(downloads_path, exist_ok=True)
         if filename in os.listdir(downloads_path):
             await reply.edit(f'{filename} already downloaded')
-            return downloads_path.joinpath('/' + filename)
+            return downloads_path.joinpath(filename)
         else:
             await reply.edit(f'{filename} being downloaded')
 
@@ -124,7 +124,7 @@ if __name__ == '__main__':
 
     async def real_upload(downpath: str, r: Message, event: Union[NewMessage.Event, Message]):
         filename = os.path.basename(downpath)
-        uppath = '/TG Uploads' + filename
+        uppath = '/TG Uploads/' + filename
         user = auth_users[str(event.chat_id)]
         await r.edit(f'{filename} being uploaded')
         try:
