@@ -4,7 +4,6 @@ import logging
 import os
 from pathlib import Path
 from typing import *
-
 import owncloud
 import telethon
 from telethon.events import NewMessage
@@ -24,6 +23,7 @@ if __name__ == '__main__':
     bot_token: str
     auth_users: dict
 
+
     async def load():
         global admin_id, api_id, api_hash, bot_token, cloud, auth_users
         admin_id = os.getenv('ADMIN')
@@ -41,10 +41,13 @@ if __name__ == '__main__':
             with open(file, 'r') as doc:
                 auth_users = json.load(doc)
 
+
     loading = asyncio.get_event_loop().run_until_complete(load())
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     downloads_path = Path(f'./downloads')
-    lock_dict = {}
+    up_lock_dict = {}
+    down_lock_dict = {}
+
 
     @bot.on(NewMessage(pattern='/start'))
     async def start(event: NewMessage.Event):
@@ -56,8 +59,9 @@ if __name__ == '__main__':
             return
         await event.respond('Send me a message and I will upload it to your owncloud server')
 
+
     @bot.on(NewMessage())
-    async def upload(event: Union[NewMessage.Event, Message]):
+    async def file_handler(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
         if not event.file or event.sticker or event.voice:
             return
@@ -66,18 +70,24 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             return
-        m: Message = await event.reply('File queued')
-        async with get_lock(chatter):
-            await m.delete()
-            await real_upload(event)
+        reply: Message = await event.reply('File queued')
+        async with get_up_lock(chatter):
+            downloaded_file = await real_upload(event, reply)
+        async with get_down_lock(chatter):
+            await real_upload(downloaded_file, reply, event)
 
-    def get_lock(user: str) -> asyncio.Lock:
-        if not lock_dict.get(user):
-            lock_dict[user] = asyncio.Lock()
-        return lock_dict[user]
 
-    async def real_upload(event: Union[NewMessage.Event, Message]):
-        user = auth_users[str(event.chat_id)]
+    def get_up_lock(user: str) -> asyncio.Lock:
+        if not up_lock_dict.get(user):
+            up_lock_dict[user] = asyncio.Lock()
+        return up_lock_dict[user]
+
+    def get_down_lock(user: str) -> asyncio.Lock:
+        if not down_lock_dict.get(user):
+            down_lock_dict[user] = asyncio.Lock()
+        return down_lock_dict[user]
+
+    async def real_download(event: Union[NewMessage.Event, Message], reply) -> str:
         if not event.file.name:
             async with bot.conversation(event.chat_id) as conv:
                 s: Message = await conv.send_message('File has no filename. Please Provide one.'
@@ -98,32 +108,44 @@ if __name__ == '__main__':
         else:
             filename = event.file.name
 
-        r: Message = await event.reply(f'{filename} being downloaded')
+        if filename in os.listdir(downloads_path):
+            await reply.edit(f'{filename} already downloaded')
+            return downloads_path.joinpath(filename)
+        else:
+            await reply.edit(f'{filename} being downloaded')
 
         try:
             downpath = await event.download_media(downloads_path.joinpath(filename))
-            uppath = 'TG Uploads/' + filename
-            await r.edit(f'{filename} downloaded')
-            await r.edit(f'{filename} being uploaded')
-            try:
-                usercloud = owncloud.Client(cloud)
-                await loop.run_in_executor(None, usercloud.login, user['username'], user['password'])
-                files_list = await loop.run_in_executor(None, usercloud.list, '')
-                if 'TG Uploads' not in [file.get_name() for file in files_list if file.is_dir()]:
-                    await loop.run_in_executor(None, usercloud.mkdir, 'TG Uploads')
-                files_list = await loop.run_in_executor(None, usercloud.list, '/TG Uploads')
-                while os.path.basename(downpath) in [file.get_name() for file in files_list]:
-                    uppath += 'copy'
-                    downpath += 'copy'
-                await loop.run_in_executor(None, usercloud.put_file, uppath, downpath)
-                await loop.run_in_executor(None, usercloud.logout)
-
-                await r.edit(f'{filename} uploaded correctly')
-            except Exception as e:
-                print(e)
-                await r.edit(f'{filename} could not be uploaded')
+            await reply.edit(f'{filename} downloaded')
         except:
-            await r.edit(f'{filename} could not be downloaded')
+            await reply.edit(f'{filename} could not be downloaded')
+            raise
+        return downpath
+
+    async def real_upload(downpath: str, r: Message, event: Union[NewMessage.Event, Message]):
+        filename = os.path.basename(downpath)
+        uppath = '/TG Uploads' + filename
+        user = auth_users[str(event.chat_id)]
+        await r.edit(f'{filename} being uploaded')
+        try:
+            usercloud = owncloud.Client(cloud)
+            await loop.run_in_executor(None, usercloud.login, user['username'], user['password'])
+            files_list = await loop.run_in_executor(None, usercloud.list, '')
+            if 'TG Uploads' not in [file.get_name() for file in files_list if file.is_dir()]:
+                await loop.run_in_executor(None, usercloud.mkdir, 'TG Uploads')
+            files_list = await loop.run_in_executor(None, usercloud.list, '/TG Uploads')
+            file_cloud_name = os.path.basename(downpath)
+            while file_cloud_name in [file.get_name() for file in files_list]:
+                uppath += 'copy'
+                file_cloud_name += 'copy'
+            await loop.run_in_executor(None, usercloud.put_file, uppath, downpath)
+            await loop.run_in_executor(None, usercloud.logout)
+
+            await r.edit(f'{filename} uploaded correctly')
+        except:
+            await r.edit(f'{filename} could not be uploaded')
+            raise
+
 
     @bot.on(NewMessage(pattern=r'/add_user_-?(\d+)'))
     async def add_user(event: Union[NewMessage.Event, Message]):
@@ -135,6 +157,7 @@ if __name__ == '__main__':
         await save_authusers()
         await event.respond('User added')
 
+
     @bot.on(NewMessage(pattern=r'/del_user_-?(\d+)'))
     async def del_user(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
@@ -144,6 +167,7 @@ if __name__ == '__main__':
         auth_users.pop(user)
         await save_authusers()
         await event.respond('User deleted')
+
 
     @bot.on(NewMessage(pattern=r'/login'))
     async def login(event: Union[NewMessage, Message]):
@@ -161,6 +185,7 @@ if __name__ == '__main__':
             await save_authusers()
             await conv.send_message('User saved correctly, you may start using the bot')
 
+
     @bot.on(NewMessage(pattern='/broadcast'))
     async def broadcast(event: Union[NewMessage, Message]):
         chatter = str(event.chat_id)
@@ -171,12 +196,14 @@ if __name__ == '__main__':
             if user != admin_id:
                 await bot.send_message(int(user), message=bc)
 
+
     @bot.on(NewMessage(pattern='/save'))
     async def savexd(event: Union[Message, NewMessage]):
         c_id: int = event.chat_id
         m_id: int = event.reply_to_msg_id
         await event.respond(f'{c_id}, {m_id}')
         # await bot.edit_message(637898783, message=76, file='users/users.json')
+
 
     async def save_authusers():
         with open('users/users.json', 'w') as doc:
