@@ -23,7 +23,7 @@ if __name__ == '__main__':
     api_hash: str
     bot_token: str
     auth_users: dict
-    zipping: bool = False
+    zipping: bool
 
 
     async def load():
@@ -48,10 +48,11 @@ if __name__ == '__main__':
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     up_lock_dict = {}
     down_lock_dict = {}
+    zipping = False
     downloads_path: Path = Path(f'./downloads')
 
-
     # region users
+
 
     @bot.on(NewMessage(pattern='/start'))
     async def start(event: NewMessage.Event):
@@ -96,7 +97,6 @@ if __name__ == '__main__':
             await event.respond('Please type /login')
             return
         folder = event.pattern_match.group(1)
-        global zipping
         zipping = True
         async with bot.conversation(event.chat_id) as conv:
             r: Message = await conv.send_message('Start sending me files and i\'ll zip and upload them'
