@@ -106,8 +106,10 @@ if __name__ == '__main__':
             m_download_list: List[Message] = []
             while not m.raw_text.startswith(('/cancel', '/stop')):
                 if not event.file or event.sticker or event.voice:
+                    m = await conv.get_response()
                     continue
                 m_download_list.append(m)
+                m.reply(str(m_download_list))
                 m = await conv.get_response()
             zipping = False
             if m.raw_text.startswith('/cancel'):
