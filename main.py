@@ -72,7 +72,7 @@ if __name__ == '__main__':
             return
         reply: Message = await event.reply('File queued')
         async with get_up_lock(chatter):
-            downloaded_file = await real_upload(event=event, reply=reply)
+            downloaded_file = await real_download(event=event, reply=reply)
         async with get_down_lock(chatter):
             await real_upload(downloaded_file, reply, event)
 
