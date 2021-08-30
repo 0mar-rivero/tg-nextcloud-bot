@@ -109,7 +109,7 @@ if __name__ == '__main__':
                     m = await conv.get_response()
                     continue
                 m_download_list.append(m)
-                m.reply(str(m_download_list))
+                await m.reply(str(m_download_list))
                 m = await conv.get_response()
             zipping = False
             if m.raw_text.startswith('/cancel'):
