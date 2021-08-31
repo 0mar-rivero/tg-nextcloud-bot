@@ -112,7 +112,8 @@ if __name__ == '__main__':
             raise
         url = event.pattern_match.group(1)
         try:
-            filename = str(event.pattern_match.group(2)).strip()
+            if not event.pattern_match.group(2).strip():
+                filename = str(event.pattern_match.group(2)).strip()
         except Exception as e:
             await event.respond(str(e))
             filename = None
@@ -170,6 +171,7 @@ if __name__ == '__main__':
     # endregion
 
     # region admin
+
 
     @bot.on(NewMessage(pattern=r'/add_user_(-?\d+)'))
     async def add_user(event: Union[NewMessage.Event, Message]):
