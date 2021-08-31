@@ -312,10 +312,11 @@ if __name__ == '__main__':
                 filename = url_filename
             else:
                 filename += '.' + url_ext
+            await reply.reply(f'{filename}')
             filepath = downpath + '/' + filename
-            reply.edit(f'{filename} being downloaded')
+            await reply.edit(f'{filename} being downloaded')
             if os.path.exists(filepath):
-                reply.edit(f'{filename} already downloaded')
+                await reply.edit(f'{filename} already downloaded')
                 return filepath
             wget.download(url, filepath)
             reply.edit(f'{filename} downloaded')
