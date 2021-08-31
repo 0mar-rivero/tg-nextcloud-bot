@@ -107,7 +107,10 @@ if __name__ == '__main__':
             await event.respond('Please type /login')
             raise
         url = event.pattern_match.group(1)
-        filename = event.pattern_math.group(2)
+        try:
+            filename = event.pattern_math.group(2)
+        except:
+            filename = None
         reply: Message = await event.reply('Link queued')
         async with get_down_lock(chatter):
             filepath = await url_download(reply, url, filename, downloads_path)
