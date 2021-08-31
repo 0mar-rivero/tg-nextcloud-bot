@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import *
 import owncloud
-import requests
 import telethon
 from telethon.events import NewMessage
 from telethon.tl.custom import Message
