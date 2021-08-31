@@ -272,11 +272,11 @@ if __name__ == '__main__':
                 uppath += 'copy'
                 file_cloud_name += 'copy'
             await loop.run_in_executor(None, usercloud.put_file, uppath, filepath)
+            await r.edit(f'{filename} uploaded correctly')
             await loop.run_in_executor(None, usercloud.logout)
 
-            await r.edit(f'{filename} uploaded correctly')
         except:
-            await r.edit(f'{filename} could not be uploaded')
+            await r.reply(f'{filename} could not be uploaded')
             raise
 
 
