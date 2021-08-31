@@ -112,12 +112,11 @@ if __name__ == '__main__':
             raise
         url = event.pattern_match.group(1)
         try:
-            filename = str(event.pattern_math.group(2)).strip()
-        except:
+            filename = str(event.pattern_match.group(2)).strip()
+        except Exception as e:
+            await event.respond(str(e))
             filename = None
-        link = 'link'
-        reply: Message = await event.respond(f'{filename if filename else link} queued')
-        reply: Message = await event.respond(f'{filename if filename else link} queued')
+        reply: Message = await event.respond(f'{filename if filename else url} queued')
         async with get_down_lock(chatter):
             filepath = await url_download(reply, url, filename, downloads_path)
         async with get_up_lock(chatter):
