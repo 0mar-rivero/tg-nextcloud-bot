@@ -115,7 +115,8 @@ if __name__ == '__main__':
             filename = event.pattern_math.group(2)
         except:
             filename = None
-        reply: Message = await event.reply('Link queued')
+        link = 'link'
+        reply: Message = await event.reply(f'{filename if filename else link} queued')
         async with get_down_lock(chatter):
             filepath = await url_download(reply, url, filename, downloads_path)
         async with get_up_lock(chatter):
