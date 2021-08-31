@@ -28,11 +28,20 @@ if __name__ == '__main__':
 
     async def load():
         global admin_id, api_id, api_hash, bot_token, cloud, auth_users
-        admin_id = os.getenv('ADMIN')
-        api_id = int(os.getenv('API_ID'))
-        api_hash = os.getenv('API_HASH')
-        bot_token = os.getenv('BOT_TOKEN')
-        cloud = os.getenv('CLOUD')
+        if "env.json" in os.listdir('.'):
+            with open('env.json', 'r') as envdoc:
+                env: dict = json.load(envdoc)
+            admin_id = env['ADMIN']
+            api_id = int(env['API_ID'])
+            api_hash = env['API_HASH']
+            bot_token = env['BOT_TOKEN']
+            cloud = env['CLOUD']
+        else:
+            admin_id = os.getenv('ADMIN')
+            api_id = int(os.getenv('API_ID'))
+            api_hash = os.getenv('API_HASH')
+            bot_token = os.getenv('BOT_TOKEN')
+            cloud = os.getenv('CLOUD')
         global auth_users
         async with telethon.TelegramClient('me', api_id, api_hash) as me:
             m: Message
@@ -49,7 +58,7 @@ if __name__ == '__main__':
     up_lock_dict = {}
     down_lock_dict = {}
     zipping = False
-    downloads_path: Path = Path(f'./downloads')
+    downloads_path = './downloads'
 
     # region users
 
@@ -105,11 +114,10 @@ if __name__ == '__main__':
             m: Message = await conv.get_response()
             m_download_list: List[Message] = []
             while not m.raw_text.startswith(('/cancel', '/stop')):
-                if not event.file or event.sticker or event.voice:
+                if not m.file or m.sticker or m.voice:
                     m = await conv.get_response()
                     continue
                 m_download_list.append(m)
-                await m.reply(str(m_download_list))
                 m = await conv.get_response()
             zipping = False
             if m.raw_text.startswith('/cancel'):
@@ -118,17 +126,17 @@ if __name__ == '__main__':
             await m.reply('ok')
             filepaths: List[str] = []
             for mes in m_download_list:
-                if not m.file.name:
-                    filename = str(m_download_list.index(m)) + mes.file.ext
+                if not mes.file.name:
+                    filename = str(m_download_list.index(mes)) + mes.file.ext
                 else:
                     filename = mes.file.name
                 async with get_down_lock(chatter):
                     filepaths.append(await real_download(mes, r, filename=filename,
-                                                         downpath=downloads_path.joinpath(folder, filename)))
-            zippath = str(downloads_path.joinpath(folder)) + '.zip'
+                                                         downpath=downloads_path + '/' + folder))
+            zippath = downloads_path + '/' + folder + '.zip'
             with PyZipFile(zippath, 'a') as upzip:
                 for path in filepaths:
-                    upzip.write(path)
+                    upzip.write(path, folder + '/' + os.path.basename(path))
             async with get_up_lock(chatter):
                 await real_upload(zippath, r, event)
 
@@ -197,6 +205,7 @@ if __name__ == '__main__':
 
     # region funcs
 
+
     def get_up_lock(user: str) -> asyncio.Lock:
         if not up_lock_dict.get(user):
             up_lock_dict[user] = asyncio.Lock()
@@ -207,7 +216,6 @@ if __name__ == '__main__':
         if not down_lock_dict.get(user):
             down_lock_dict[user] = asyncio.Lock()
         return down_lock_dict[user]
-
 
     async def real_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
                             downpath=downloads_path) -> str:
@@ -234,12 +242,12 @@ if __name__ == '__main__':
         os.makedirs(downpath, exist_ok=True)
         if filename in os.listdir(downloads_path):
             await reply.edit(f'{filename} already downloaded')
-            return downpath.joinpath(filename)
+            return str(downpath + '/' + filename)
         else:
             await reply.edit(f'{filename} being downloaded')
 
         try:
-            filepath = await event.download_media(downloads_path.joinpath(filename))
+            filepath = await event.download_media(downpath + '/' + f'/{filename}')
             await reply.edit(f'{filename} downloaded')
         except:
             await reply.edit(f'{filename} could not be downloaded')
