@@ -80,12 +80,12 @@ if __name__ == '__main__':
     async def file_handler(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
         if not event.file or event.sticker or event.voice or zipping:
-            raise
+            return
         if chatter not in auth_users.keys():
-            raise
+            return
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
-            raise
+            return
         reply: Message = await event.reply('File queued')
         async with get_down_lock(chatter):
             try:
@@ -319,10 +319,10 @@ if __name__ == '__main__':
                 await reply.edit(f'{filename} already downloaded')
                 return filepath
             wget.download(url, filepath)
-            reply.edit(f'{filename} downloaded')
+            await reply.edit(f'{filename} downloaded')
             return filepath
         except:
-            reply.edit('Cannot access url')
+            await reply.edit('Cannot access url')
             raise
 
 
