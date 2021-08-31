@@ -10,7 +10,11 @@ import telethon
 from telethon.events import NewMessage
 from telethon.tl.custom import Message
 from zipfile import PyZipFile
-import wget
+import aiohttp
+from urllib import request
+import aiofiles
+from download import download_url, get_file_size
+from functools import partial
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
@@ -306,21 +310,36 @@ if __name__ == '__main__':
 
     async def url_download(reply, url: str, filename: str = None, downpath: str = downloads_path) -> str:
         try:
-            url_filename = wget.filename_from_url(url)
-            url_ext = '.'.join(url_filename.split('.')[1:])
+            req = request.Request(url)
+            req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0")
+            try:
+                httpResponse = request.urlopen(req)
+            except:
+                await reply.edit('An error occurred accessing the url')
+                raise
+            path = Path(httpResponse.url)
             if not filename:
-                filename = url_filename
-            else:
-                filename += '.' + url_ext
-            await reply.reply(f'{filename}')
-            filepath = downpath + '/' + filename
-            await reply.edit(f'{filename} being downloaded')
-            if os.path.exists(filepath):
-                await reply.edit(f'{filename} already downloaded')
-                return filepath
-            wget.download(url, filepath)
-            await reply.edit(f'{filename} downloaded')
-            return filepath
+                if str(httpResponse.status).startswith('2'):
+                    if not path.name or not path.suffix:
+                        reply.edit('File has no file name please provide one in the link upload request\n'
+                                   '/link <link> | <name>')
+                        return
+                    else:
+                        filename = str(path.name)
+                else:
+                    await reply.edit(f'Request error with code {httpResponse.status}.')
+                    return
+            if '.' not in filename:
+                filename = filename + ''.join(path.suffixes)
+            file_size = httpResponse.length
+            if not file_size:
+                await reply.edit("Invalid file, has no filesize")
+                return
+            await reply.edit(f'Downloading {filename}')
+            async with aiofiles.open(Path(filename), 'wb') as o_file:
+                await download_url(o_file, url, file_size)
+            await reply.edit("Link downloaded")
+            return str(Path(filename))
         except:
             await reply.edit('Cannot access url')
             raise

@@ -1,3 +1,4 @@
-wget==3.2
+aiohttp==3.6.2
 pyocclient==0.6
+aiofiles==0.6.0
 Telethon==1.23.0
