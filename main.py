@@ -2,13 +2,16 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import *
 import owncloud
+import requests
 import telethon
 from telethon.events import NewMessage
 from telethon.tl.custom import Message
 from zipfile import PyZipFile
+import wget
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
@@ -71,30 +74,46 @@ if __name__ == '__main__':
         if 'username' not in auth_users[chatter].keys():
             await event.respond('Please type /login')
             return
-        await event.respond('Send me a message and I will upload it to your owncloud server')
+        await event.respond('Send me a file and I will upload it to your owncloud server')
 
 
     @bot.on(NewMessage())
     async def file_handler(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
         if not event.file or event.sticker or event.voice or zipping:
-            return
-        if chatter not in auth_users.keys() and chatter != admin_id:
-            return
+            raise
+        if chatter not in auth_users.keys():
+            raise
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
-            return
+            raise
         reply: Message = await event.reply('File queued')
         async with get_down_lock(chatter):
             try:
-                downloaded_file = await real_download(event=event, reply=reply)
+                downloaded_file = await tg_download(event=event, reply=reply)
             except:
                 return
         async with get_up_lock(chatter):
             try:
-                await real_upload(downloaded_file, reply, event)
+                await cloud_upload(downloaded_file, reply, event)
             except:
                 return
+
+    @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+([^\s].*))?'))
+    async def link_handler(event: Union[NewMessage, Message]):
+        chatter = str(event.chat_id)
+        if chatter not in auth_users.keys() or zipping:
+            raise
+        if not auth_users[chatter]['username']:
+            await event.respond('Please type /login')
+            raise
+        url = event.pattern_match.group(1)
+        filename = event.pattern_math.group(2)
+        reply: Message = await event.reply('Link queued')
+        async with get_down_lock(chatter):
+            filepath = await url_download(reply, url, filename, downloads_path)
+        async with get_up_lock(chatter):
+            await cloud_upload(filepath, reply, event)
 
 
     @bot.on(NewMessage(pattern=r'/zip\s(.+)'))
@@ -102,10 +121,10 @@ if __name__ == '__main__':
         global zipping
         chatter = str(event.chat_id)
         if chatter not in auth_users.keys() or zipping:
-            return
+            raise
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
-            return
+            raise
         folder = event.pattern_match.group(1)
         zipping = True
         async with bot.conversation(event.chat_id) as conv:
@@ -123,7 +142,7 @@ if __name__ == '__main__':
             if m.raw_text.startswith('/cancel'):
                 await conv.send_message('Ok, cancelled', reply_to=m)
                 return
-            await m.reply('ok')
+            await r.edit('Zip queued')
             filepaths: List[str] = []
             for mes in m_download_list:
                 if not mes.file.name:
@@ -131,14 +150,14 @@ if __name__ == '__main__':
                 else:
                     filename = mes.file.name
                 async with get_down_lock(chatter):
-                    filepaths.append(await real_download(mes, r, filename=filename,
-                                                         downpath=downloads_path + '/' + folder))
+                    filepaths.append(await tg_download(mes, r, filename=filename,
+                                                       downpath=downloads_path + '/' + folder))
             zippath = downloads_path + '/' + folder + '.zip'
             with PyZipFile(zippath, 'a') as upzip:
                 for path in filepaths:
                     upzip.write(path, folder + '/' + os.path.basename(path))
             async with get_up_lock(chatter):
-                await real_upload(zippath, r, event)
+                await cloud_upload(zippath, r, event)
 
 
     # endregion
@@ -217,8 +236,8 @@ if __name__ == '__main__':
             down_lock_dict[user] = asyncio.Lock()
         return down_lock_dict[user]
 
-    async def real_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
-                            downpath=downloads_path) -> str:
+    async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
+                          downpath=downloads_path) -> str:
         if not filename:
             if not event.file.name:
                 async with bot.conversation(event.chat_id) as conv:
@@ -226,15 +245,19 @@ if __name__ == '__main__':
                                                          '\nNote that extension is not needed.'
                                                          '\nThis option expires in 1 min.'
                                                          '\nYou can cancel using /cancel.')
+                    e = Exception()
                     try:
                         resp: Message = await conv.get_response(s, timeout=60)
                         if resp.raw_text == '/cancel':
                             await s.edit('Cancelled')
-                            return
+                            e = Exception('que loco')
+                            raise
                         else:
                             filename = f'{resp.raw_text}{event.file.ext}'
                             await s.edit(f'File name set to {filename}')
-                    except:
+                    except Exception as efe:
+                        if efe is e:
+                            raise
                         await s.edit('File name was never provided. File could not be processed.')
                         raise
             else:
@@ -255,11 +278,11 @@ if __name__ == '__main__':
         return filepath
 
 
-    async def real_upload(filepath: str, r: Message, event: Union[NewMessage.Event, Message]):
+    async def cloud_upload(filepath: str, reply: Message, event: Union[NewMessage.Event, Message]):
         filename = os.path.basename(filepath)
         uppath = '/TG Uploads/' + filename
         user = auth_users[str(event.chat_id)]
-        await r.edit(f'{filename} being uploaded')
+        await reply.edit(f'{filename} being uploaded')
         try:
             usercloud = owncloud.Client(cloud)
             await loop.run_in_executor(None, usercloud.login, user['username'], user['password'])
@@ -272,11 +295,31 @@ if __name__ == '__main__':
                 uppath += 'copy'
                 file_cloud_name += 'copy'
             await loop.run_in_executor(None, usercloud.put_file, uppath, filepath)
-            await r.edit(f'{filename} uploaded correctly')
+            await reply.edit(f'{filename} uploaded correctly')
             await loop.run_in_executor(None, usercloud.logout)
 
         except:
-            await r.reply(f'{filename} could not be uploaded')
+            await reply.reply(f'{filename} could not be uploaded')
+            raise
+
+    async def url_download(reply, url: str, filename: str = None, downpath: str = downloads_path) -> str:
+        try:
+            url_filename = wget.filename_from_url(url)
+            url_ext = '.'.join(url_filename.split('.')[1:])
+            if not filename:
+                filename = url_filename
+            else:
+                filename += '.' + url_ext
+            filepath = downpath + '/' + filename
+            reply.edit(f'{filename} being downloaded')
+            if os.path.exists(filepath):
+                reply.edit(f'{filename} already downloaded')
+                return filepath
+            wget.download(url, filepath)
+            reply.edit(f'{filename} downloaded')
+            return filepath
+        except:
+            reply.edit('Cannot access url')
             raise
 
 
@@ -288,6 +331,7 @@ if __name__ == '__main__':
 
 
     # endregion
+
 
     @bot.on(NewMessage(pattern='/save'))
     async def savexd(event: Union[Message, NewMessage]):

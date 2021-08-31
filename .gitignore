@@ -132,3 +132,5 @@ dmypy.json
 # Bots
 bot.session
 bot.session-journal
+
+downloads/
