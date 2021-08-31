@@ -117,6 +117,7 @@ if __name__ == '__main__':
             filename = None
         link = 'link'
         reply: Message = await event.respond(f'{filename if filename else link} queued')
+        reply: Message = await event.respond(f'{filename if filename else link} queued')
         async with get_down_lock(chatter):
             filepath = await url_download(reply, url, filename, downloads_path)
         async with get_up_lock(chatter):
