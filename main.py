@@ -102,7 +102,7 @@ if __name__ == '__main__':
             except:
                 return
 
-    @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+([^\s].*))?'))
+    @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+)?([^\s].*)?'))
     async def link_handler(event: Union[NewMessage, Message]):
         chatter = str(event.chat_id)
         if chatter not in auth_users.keys() or zipping:
@@ -112,7 +112,7 @@ if __name__ == '__main__':
             raise
         url = event.pattern_match.group(1)
         try:
-            filename = event.pattern_math.group(2)
+            filename = str(event.pattern_math.group(2)).strip()
         except:
             filename = None
         link = 'link'
