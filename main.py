@@ -115,7 +115,6 @@ if __name__ == '__main__':
             if not event.pattern_match.group(2).strip():
                 filename = str(event.pattern_match.group(2)).strip()
         except Exception as e:
-            await event.respond(str(e))
             filename = None
         reply: Message = await event.respond(f'{filename if filename else url} queued')
         async with get_down_lock(chatter):
@@ -343,7 +342,8 @@ if __name__ == '__main__':
                 await download_url(o_file, url, file_size)
             await reply.edit("Link downloaded")
             return str(Path(filename))
-        except:
+        except Exception as e:
+            await reply.respond(str(e))
             await reply.edit('Cannot access url')
             raise
 
