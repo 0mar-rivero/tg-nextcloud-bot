@@ -15,6 +15,7 @@ from urllib import request
 import aiofiles
 from download import download_url, get_file_size
 from functools import partial
+from upload import _put_file_chunked
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
@@ -64,7 +65,7 @@ if __name__ == '__main__':
     up_lock_dict = {}
     down_lock_dict = {}
     zipping = False
-    downloads_path = './downloads'
+    upload_path = '/TG Uploads/'
 
     # region users
 
@@ -79,6 +80,24 @@ if __name__ == '__main__':
             return
         await event.respond('Send me a file and I will upload it to your owncloud server')
 
+    @bot.on(NewMessage(pattern=r'/login'))
+    async def login(event: Union[NewMessage, Message]):
+        chatter = str(event.chat_id)
+        if chatter not in auth_users.keys() and chatter != admin_id:
+            return
+
+        async with bot.conversation(event.chat_id) as conv:
+            try:
+                await conv.send_message('Please send your nextcloud username')
+                resp: Message = await conv.get_response(timeout=60)
+                auth_users[chatter]['username'] = resp.raw_text
+                await conv.send_message('Now send your password please')
+                resp: Message = await conv.get_response(timeout=60)
+                auth_users[chatter]['password'] = resp.raw_text
+                await save_auth_users()
+                await conv.send_message('User saved correctly, you may start using the bot')
+            except:
+                await conv.send_message('Login failed')
 
     @bot.on(NewMessage())
     async def file_handler(event: Union[NewMessage.Event, Message]):
@@ -93,7 +112,7 @@ if __name__ == '__main__':
         reply: Message = await event.reply('File queued')
         async with get_down_lock(chatter):
             try:
-                downloaded_file = await tg_download(event=event, reply=reply)
+                downloaded_file = await tg_download(event=event, reply=reply,download_path=get_down_path(chatter))
             except:
                 return
         async with get_up_lock(chatter):
@@ -111,14 +130,15 @@ if __name__ == '__main__':
             await event.respond('Please type /login')
             raise
         url = event.pattern_match.group(1)
+        filename = None
         try:
             if not event.pattern_match.group(2).strip():
                 filename = str(event.pattern_match.group(2)).strip()
-        except Exception as e:
+        except:
             filename = None
         reply: Message = await event.respond(f'{filename if filename else url} queued')
         async with get_down_lock(chatter):
-            filepath = await url_download(reply, url, filename, downloads_path)
+            filepath = await url_download(reply, url, filename, get_down_path(chatter))
         async with get_up_lock(chatter):
             await cloud_upload(filepath, reply, event)
 
@@ -132,7 +152,7 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             raise
-        folder = event.pattern_match.group(1)
+        folder_path: Path = get_down_path(chatter).joinpath(event.pattern_match.group(1))
         zipping = True
         async with bot.conversation(event.chat_id) as conv:
             r: Message = await conv.send_message('Start sending me files and i\'ll zip and upload them'
@@ -158,13 +178,13 @@ if __name__ == '__main__':
                     filename = mes.file.name
                 async with get_down_lock(chatter):
                     filepaths.append(await tg_download(mes, r, filename=filename,
-                                                       downpath=downloads_path + '/' + folder))
-            zippath = downloads_path + '/' + folder + '.zip'
-            with PyZipFile(zippath, 'a') as upzip:
+                                                       download_path=folder_path))
+            zip_path = folder_path.joinpath(filename)
+            with PyZipFile(str(zip_path), 'a') as up_zip:
                 for path in filepaths:
-                    upzip.write(path, folder + '/' + os.path.basename(path))
+                    up_zip.write(path, folder_path.joinpath(os.path.basename(path)))
             async with get_up_lock(chatter):
-                await cloud_upload(zippath, r, event)
+                await cloud_upload(str(zip_path), r, event)
 
 
     # endregion
@@ -179,7 +199,7 @@ if __name__ == '__main__':
             return
         user = event.pattern_match.group(1)
         auth_users[user] = {}
-        await save_authusers()
+        await save_auth_users()
         await event.respond('User added')
 
 
@@ -190,28 +210,8 @@ if __name__ == '__main__':
             return
         user = event.pattern_match.group(1);
         auth_users.pop(user)
-        await save_authusers()
+        await save_auth_users()
         await event.respond('User deleted')
-
-
-    @bot.on(NewMessage(pattern=r'/login'))
-    async def login(event: Union[NewMessage, Message]):
-        chatter = str(event.chat_id)
-        if chatter not in auth_users.keys() and chatter != admin_id:
-            return
-
-        async with bot.conversation(event.chat_id) as conv:
-            try:
-                await conv.send_message('Please send your nextcloud username')
-                resp: Message = await conv.get_response(timeout=60)
-                auth_users[chatter]['username'] = resp.raw_text
-                await conv.send_message('Now send your password please')
-                resp: Message = await conv.get_response(timeout=60)
-                auth_users[chatter]['password'] = resp.raw_text
-                await save_authusers()
-                await conv.send_message('User saved correctly, you may start using the bot')
-            except:
-                await conv.send_message('Login failed')
 
 
     @bot.on(NewMessage(pattern='/broadcast'))
@@ -233,19 +233,8 @@ if __name__ == '__main__':
     # region funcs
 
 
-    def get_up_lock(user: str) -> asyncio.Lock:
-        if not up_lock_dict.get(user):
-            up_lock_dict[user] = asyncio.Lock()
-        return up_lock_dict[user]
-
-
-    def get_down_lock(user: str) -> asyncio.Lock:
-        if not down_lock_dict.get(user):
-            down_lock_dict[user] = asyncio.Lock()
-        return down_lock_dict[user]
-
     async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
-                          downpath=downloads_path) -> str:
+                          download_path: Path = Path('./downloads')) -> str:
         if not filename:
             if not event.file.name:
                 async with bot.conversation(event.chat_id) as conv:
@@ -270,25 +259,24 @@ if __name__ == '__main__':
                         raise
             else:
                 filename = event.file.name
-        os.makedirs(downpath, exist_ok=True)
-        if filename in os.listdir(downloads_path):
+        if filename in os.listdir(download_path):
             await reply.edit(f'{filename} already downloaded')
-            return str(downpath + '/' + filename)
+            return str(download_path.joinpath(filename))
         else:
             await reply.edit(f'{filename} being downloaded')
 
         try:
-            filepath = await event.download_media(downpath + '/' + f'/{filename}')
+            filepath = await event.download_media(download_path)
             await reply.edit(f'{filename} downloaded')
-        except:
-            await reply.edit(f'{filename} could not be downloaded')
+        except Exception as exc:
+            print(exc)
+            await reply.edit(f'{filename} could not be downloaded\n{exc}')
             raise
         return filepath
 
-
     async def cloud_upload(filepath: str, reply: Message, event: Union[NewMessage.Event, Message]):
         filename = os.path.basename(filepath)
-        uppath = '/TG Uploads/' + filename
+        uppath = upload_path + filename
         user = auth_users[str(event.chat_id)]
         await reply.edit(f'{filename} being uploaded')
         try:
@@ -302,15 +290,17 @@ if __name__ == '__main__':
             while file_cloud_name in [file.get_name() for file in files_list]:
                 uppath += 'copy'
                 file_cloud_name += 'copy'
-            await loop.run_in_executor(None, usercloud.put_file, uppath, filepath)
+            await loop.run_in_executor(None, _put_file_chunked, usercloud, uppath, filepath)
             await reply.edit(f'{filename} uploaded correctly')
             await loop.run_in_executor(None, usercloud.logout)
 
-        except:
-            await reply.reply(f'{filename} could not be uploaded')
+        except Exception as e:
+            await reply.reply(f'{e}')
+            print(e)
             raise
 
-    async def url_download(reply, url: str, filename: str = None, downpath: str = downloads_path) -> str:
+
+    async def url_download(reply, url: str, filename: str = None, download_path: Path = Path('./downloads')) -> str:
         try:
             req = request.Request(url)
             req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0")
@@ -325,34 +315,58 @@ if __name__ == '__main__':
                     if not path.name or not path.suffix:
                         reply.edit('File has no file name please provide one in the link upload request\n'
                                    '/link <link> | <name>')
-                        return
+                        raise Exception('No file name')
                     else:
                         filename = str(path.name)
                 else:
                     await reply.edit(f'Request error with code {httpResponse.status}.')
-                    return
+                    raise Exception(f'Request error with code {httpResponse.status}.')
             if '.' not in filename:
                 filename = filename + ''.join(path.suffixes)
             file_size = httpResponse.length
             if not file_size:
                 await reply.edit("Invalid file, has no filesize")
-                return
+                raise Exception("Invalid file, has no filesize")
             await reply.edit(f'Downloading {filename}')
-            async with aiofiles.open(Path(filename), 'wb') as o_file:
+            async with aiofiles.open(download_path.joinpath(filename), 'wb') as o_file:
                 await download_url(o_file, url, file_size)
             await reply.edit("Link downloaded")
-            return str(Path(filename))
+            return str(download_path.joinpath(filename))
         except Exception as e:
             await reply.respond(str(e))
             await reply.edit('Cannot access url')
             raise
 
-
-    async def save_authusers():
+    async def save_auth_users():
         with open('users/users.json', 'w') as doc:
             json.dump(auth_users, doc)
         async with telethon.TelegramClient('me', api_id, api_hash) as me:
             await me.send_file(-525481046, file='users/users.json', caption='users')
+
+
+    def get_up_lock(user: str) -> asyncio.Lock:
+        if not up_lock_dict.get(user):
+            up_lock_dict[user] = asyncio.Lock()
+        return up_lock_dict[user]
+
+
+    def get_down_lock(user: str) -> asyncio.Lock:
+        if not down_lock_dict.get(user):
+            down_lock_dict[user] = asyncio.Lock()
+        return down_lock_dict[user]
+
+
+    def get_down_path(user: str) -> Path:
+        os.makedirs(f'./downloads/{user}', exist_ok=True)
+        return Path(f'./downloads/{user}/')
+
+
+    # @slow(5)
+    # async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
+    #     await reply.edit(
+    #         f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
+    #         f"({transferred_bytes * 100 / total_bytes}%)")
+
 
 
     # endregion
