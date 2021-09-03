@@ -15,7 +15,6 @@ async def download_url(file: AsyncBufferedIOBase, url: str, total_size: int, cal
             current = 0
             chunk = await response.content.read(chunk_size)
             while chunk:
-                await asyncio.sleep(1)
                 await file.write(chunk)
                 if callback:
                     current += len(chunk)
