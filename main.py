@@ -405,7 +405,8 @@ if __name__ == '__main__':
             await reply.edit(
                 f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
                 f"({transferred_bytes * 100 / total_bytes}%)")
-        except:
+        except Exception as exc:
+            print(exc)
             return
 
 
