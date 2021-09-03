@@ -65,7 +65,7 @@ def _put_file_chunked(self, remote_path, local_source_file, callback=None, **kwa
         ):
             result = False
             break
-        progress_list.append(callback(max(len(data) * (chunk_index + 1), size), size))
+        progress_list.append(callback(min(len(chunk_size) * (chunk_index + 1), size), size))
     file_handle.close()
     for progress in progress_list:
         if progress:
