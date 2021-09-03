@@ -3,6 +3,7 @@ import os
 import time
 import math
 from typing import List
+from threading import Thread
 
 
 def _put_file_chunked(self, remote_path, local_source_file, callback=None, **kwargs):
@@ -65,9 +66,7 @@ def _put_file_chunked(self, remote_path, local_source_file, callback=None, **kwa
         ):
             result = False
             break
-        progress_list.append(callback(min(chunk_size * (chunk_index + 1), size), size))
+        hilo = Thread(target=callback, args=(min(chunk_size * (chunk_index + 1), size), size))
+        hilo.start()
     file_handle.close()
-    for progress in progress_list:
-        if progress:
-            progress.cancel()
     return result
