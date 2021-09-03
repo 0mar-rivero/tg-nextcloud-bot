@@ -287,7 +287,7 @@ if __name__ == '__main__':
 
         try:
             async with Client('https://nube.uclv.cu/remote.php/webdav', login=user['username'],
-                              password=user['password'], chunk_size=128) as cloud_client:
+                              password=user['password'], chunk_size=1024 * 1024) as cloud_client:
                 if not await cloud_client.exists(upload_path):
                     await cloud_client.create_directory(upload_path)
                 file_cloud_name = filename
