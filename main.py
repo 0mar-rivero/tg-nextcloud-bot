@@ -395,10 +395,12 @@ if __name__ == '__main__':
         return dec
 
     def sync_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
+        print('sync\t', transferred_bytes, '\t', total_bytes)
         return loop.create_task(refresh_progress_status(reply, uploading, transferred_bytes, total_bytes))
 
     async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
         try:
+            print('async\t', transferred_bytes, '\t', total_bytes)
             await reply.edit(
                 f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
                 f"({transferred_bytes * 100 / total_bytes}%)")
