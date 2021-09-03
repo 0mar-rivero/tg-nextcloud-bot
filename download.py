@@ -11,7 +11,7 @@ async def download_url(file: AsyncBufferedIOBase, url: str, total_size: int, cal
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(url) as response:
             assert response.status == 200
-            chunk_size = 1024
+            chunk_size = 1024 * 1024
             current = 0
             chunk = await response.content.read(chunk_size)
             while chunk:
