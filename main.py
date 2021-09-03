@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -16,6 +17,9 @@ import aiofiles
 from download import download_url, get_file_size
 from functools import partial
 from upload import _put_file_chunked
+import datetime
+from datetime import timezone, timedelta, datetime
+from functools import partial
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
@@ -66,6 +70,7 @@ if __name__ == '__main__':
     down_lock_dict = {}
     zipping = False
     upload_path = '/TG Uploads/'
+    slow_time = 2
 
     # region users
 
@@ -266,7 +271,7 @@ if __name__ == '__main__':
             await reply.edit(f'{filename} being downloaded')
 
         try:
-            filepath = await event.download_media(download_path)
+            filepath = await event.download_media(download_path, progress_callback=slow(2)(partial(refresh_progress_status, reply, False)))
             await reply.edit(f'{filename} downloaded')
         except Exception as exc:
             print(exc)
@@ -290,7 +295,7 @@ if __name__ == '__main__':
             while file_cloud_name in [file.get_name() for file in files_list]:
                 uppath += 'copy'
                 file_cloud_name += 'copy'
-            await loop.run_in_executor(None, _put_file_chunked, usercloud, uppath, filepath)
+            await loop.run_in_executor(None, _put_file_chunked, usercloud, uppath, filepath, sync_slow(2)(partial(sync_progress_status, reply, True)))
             await reply.edit(f'{filename} uploaded correctly')
             await loop.run_in_executor(None, usercloud.logout)
 
@@ -329,7 +334,7 @@ if __name__ == '__main__':
                 raise Exception("Invalid file, has no filesize")
             await reply.edit(f'Downloading {filename}')
             async with aiofiles.open(download_path.joinpath(filename), 'wb') as o_file:
-                await download_url(o_file, url, file_size)
+                await download_url(o_file, url, file_size, callback=slow(2)(partial(refresh_progress_status, reply, False)))
             await reply.edit("Link downloaded")
             return str(download_path.joinpath(filename))
         except Exception as e:
@@ -355,18 +360,50 @@ if __name__ == '__main__':
             down_lock_dict[user] = asyncio.Lock()
         return down_lock_dict[user]
 
-
     def get_down_path(user: str) -> Path:
         os.makedirs(f'./downloads/{user}', exist_ok=True)
         return Path(f'./downloads/{user}/')
 
+    def sync_slow(secs):
+        def dec(f):
+            t = {'last_update': datetime.now(timezone.utc)}
 
-    # @slow(5)
-    # async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
-    #     await reply.edit(
-    #         f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
-    #         f"({transferred_bytes * 100 / total_bytes}%)")
+            def wrapper(*args, **kwargs):
+                now = datetime.now(timezone.utc)
+                if now - t['last_update'] < timedelta(seconds=secs):
+                    return
+                t['last_update'] = now
+                return f(*args, **kwargs)
 
+            return wrapper
+
+        return dec
+
+    def slow(secs):
+        def dec(f):
+            t = {'last_update': datetime.now(timezone.utc)}
+
+            async def wrapper(*args, **kwargs):
+                now = datetime.now(timezone.utc)
+                if now - t['last_update'] < timedelta(seconds=secs):
+                    return
+                t['last_update'] = now
+                return await f(*args, **kwargs)
+
+            return wrapper
+
+        return dec
+
+    def sync_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
+        return loop.create_task(refresh_progress_status(reply, uploading, transferred_bytes, total_bytes))
+
+    async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
+        try:
+            await reply.edit(
+                f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
+                f"({transferred_bytes * 100 / total_bytes}%)")
+        except:
+            return
 
 
     # endregion

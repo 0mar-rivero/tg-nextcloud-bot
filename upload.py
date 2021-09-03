@@ -1,9 +1,11 @@
+import asyncio
 import os
 import time
 import math
+from typing import List
 
 
-def _put_file_chunked(self, remote_path, local_source_file, **kwargs):
+def _put_file_chunked(self, remote_path, local_source_file, callback=None, **kwargs):
     """Uploads a file using chunks. If the file is smaller than
     ``chunk_size`` it will be uploaded directly.
 
@@ -45,7 +47,7 @@ def _put_file_chunked(self, remote_path, local_source_file, **kwargs):
 
     if chunk_count > 1:
         headers['OC-CHUNKED'] = '1'
-
+    progress_list: List[asyncio.Task] = []
     for chunk_index in range(0, int(chunk_count)):
         data = file_handle.read(chunk_size)
         if chunk_count > 1:
@@ -54,7 +56,7 @@ def _put_file_chunked(self, remote_path, local_source_file, **kwargs):
                           chunk_index)
         else:
             chunk_name = remote_path
-
+        time.sleep(1)
         if not self._make_dav_request(
                 'PUT',
                 chunk_name,
@@ -63,6 +65,9 @@ def _put_file_chunked(self, remote_path, local_source_file, **kwargs):
         ):
             result = False
             break
-        # callback(len(data), size)
+        progress_list.append(callback(max(len(data) * (chunk_index + 1), size), size))
     file_handle.close()
+    for progress in progress_list:
+        if progress:
+            progress.cancel()
     return result
