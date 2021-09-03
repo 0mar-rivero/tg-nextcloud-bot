@@ -1,4 +1,4 @@
-aiohttp==3.6.2
-pyocclient==0.6
-aiofiles==0.6.0
 Telethon==1.23.0
+aiohttp==3.7.4.post0
+aiofiles==0.6.0
+git+https://github.com/jorgeajimenezl/aiodav.git@master#egg=aiodav

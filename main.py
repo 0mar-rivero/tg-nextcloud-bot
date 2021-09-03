@@ -1,25 +1,22 @@
 import asyncio
-import functools
+import datetime
 import json
 import logging
 import os
-import re
-from pathlib import Path
-from typing import *
-import owncloud
-import telethon
-from telethon.events import NewMessage
-from telethon.tl.custom import Message
-from zipfile import PyZipFile
-import aiohttp
-from urllib import request
-import aiofiles
-from download import download_url, get_file_size
-from functools import partial
-from upload import _put_file_chunked
-import datetime
 from datetime import timezone, timedelta, datetime
 from functools import partial
+from pathlib import Path
+from typing import *
+from urllib import request
+from zipfile import PyZipFile
+
+import aiofiles
+import telethon
+from aiodav import Client
+from telethon.events import NewMessage
+from telethon.tl.custom import Message
+
+from download import download_url
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
                     level=logging.WARNING)
@@ -72,8 +69,8 @@ if __name__ == '__main__':
     upload_path = '/TG Uploads/'
     slow_time = 2
 
-    # region users
 
+    # region users
 
     @bot.on(NewMessage(pattern='/start'))
     async def start(event: NewMessage.Event):
@@ -84,6 +81,7 @@ if __name__ == '__main__':
             await event.respond('Please type /login')
             return
         await event.respond('Send me a file and I will upload it to your owncloud server')
+
 
     @bot.on(NewMessage(pattern=r'/login'))
     async def login(event: Union[NewMessage, Message]):
@@ -104,6 +102,7 @@ if __name__ == '__main__':
             except:
                 await conv.send_message('Login failed')
 
+
     @bot.on(NewMessage())
     async def file_handler(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
@@ -117,14 +116,15 @@ if __name__ == '__main__':
         reply: Message = await event.reply('File queued')
         async with get_down_lock(chatter):
             try:
-                downloaded_file = await tg_download(event=event, reply=reply,download_path=get_down_path(chatter))
+                downloaded_file = await tg_download(event=event, reply=reply, download_path=get_down_path(chatter))
             except:
                 return
         async with get_up_lock(chatter):
             try:
                 await cloud_upload(downloaded_file, reply, event)
-            except:
-                return
+            except Exception as exc:
+                raise exc
+
 
     @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+)?([^\s].*)?'))
     async def link_handler(event: Union[NewMessage, Message]):
@@ -196,7 +196,6 @@ if __name__ == '__main__':
 
     # region admin
 
-
     @bot.on(NewMessage(pattern=r'/add_user_(-?\d+)'))
     async def add_user(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
@@ -237,7 +236,6 @@ if __name__ == '__main__':
 
     # region funcs
 
-
     async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
                           download_path: Path = Path('./downloads')) -> str:
         if not filename:
@@ -271,7 +269,8 @@ if __name__ == '__main__':
             await reply.edit(f'{filename} being downloaded')
 
         try:
-            filepath = await event.download_media(download_path, progress_callback=slow(2)(partial(refresh_progress_status, reply, False)))
+            filepath = await event.download_media(download_path, progress_callback=slow(2)(
+                partial(refresh_progress_status, reply, False)))
             await reply.edit(f'{filename} downloaded')
         except Exception as exc:
             print(exc)
@@ -279,36 +278,36 @@ if __name__ == '__main__':
             raise
         return filepath
 
+
     async def cloud_upload(filepath: str, reply: Message, event: Union[NewMessage.Event, Message]):
         filename = os.path.basename(filepath)
         uppath = upload_path + filename
         user = auth_users[str(event.chat_id)]
         await reply.edit(f'{filename} being uploaded')
-        try:
-            usercloud = owncloud.Client(cloud)
-            await loop.run_in_executor(None, usercloud.login, user['username'], user['password'])
-            files_list = await loop.run_in_executor(None, usercloud.list, '')
-            if 'TG Uploads' not in [file.get_name() for file in files_list if file.is_dir()]:
-                await loop.run_in_executor(None, usercloud.mkdir, 'TG Uploads')
-            files_list = await loop.run_in_executor(None, usercloud.list, '/TG Uploads')
-            file_cloud_name = os.path.basename(filepath)
-            while file_cloud_name in [file.get_name() for file in files_list]:
-                uppath += 'copy'
-                file_cloud_name += 'copy'
-            await loop.run_in_executor(None, _put_file_chunked, usercloud, uppath, filepath, sync_slow(2)(partial(sync_progress_status, reply, True)))
-            await reply.edit(f'{filename} uploaded correctly')
-            await loop.run_in_executor(None, usercloud.logout)
 
-        except Exception as e:
-            await reply.reply(f'{e}')
-            print(e)
-            raise
+        try:
+            async with Client('https://nube.uclv.cu/remote.php/webdav', login=user['username'],
+                              password=user['password'], chunk_size=128) as cloud_client:
+                if not await cloud_client.exists(upload_path):
+                    await cloud_client.create_directory(upload_path)
+                file_cloud_name = filename
+                while await cloud_client.exists(upload_path + file_cloud_name):
+                    uppath += 'copy'
+                    file_cloud_name += 'copy'
+                async with aiofiles.open(filepath, 'rb') as file:
+                    await cloud_client.upload_to(uppath, file, buffer_size=os.path.getsize(filepath),
+                                                 progress=slow(2)(partial(refresh_progress_status, reply, True)))
+                    await reply.edit(f'{filename} uploaded correctly')
+        except Exception as exc:
+            print(exc)
+            raise exc
 
 
     async def url_download(reply, url: str, filename: str = None, download_path: Path = Path('./downloads')) -> str:
         try:
             req = request.Request(url)
-            req.add_header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0")
+            req.add_header("User-Agent",
+                           "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0")
             try:
                 httpResponse = request.urlopen(req)
             except:
@@ -334,13 +333,15 @@ if __name__ == '__main__':
                 raise Exception("Invalid file, has no filesize")
             await reply.edit(f'Downloading {filename}')
             async with aiofiles.open(download_path.joinpath(filename), 'wb') as o_file:
-                await download_url(o_file, url, file_size, callback=slow(2)(partial(refresh_progress_status, reply, False)))
+                await download_url(o_file, url, file_size,
+                                   callback=slow(2)(partial(refresh_progress_status, reply, False)))
             await reply.edit("Link downloaded")
             return str(download_path.joinpath(filename))
         except Exception as e:
             await reply.respond(str(e))
             await reply.edit('Cannot access url')
             raise
+
 
     async def save_auth_users():
         with open('users/users.json', 'w') as doc:
@@ -360,28 +361,15 @@ if __name__ == '__main__':
             down_lock_dict[user] = asyncio.Lock()
         return down_lock_dict[user]
 
+
     def get_down_path(user: str) -> Path:
         os.makedirs(f'./downloads/{user}', exist_ok=True)
         return Path(f'./downloads/{user}/')
 
-    def sync_slow(secs):
-        def dec(f):
-            t = {'last_update': datetime.now(timezone.utc)}
-
-            def wrapper(*args, **kwargs):
-                now = datetime.now(timezone.utc)
-                if now - t['last_update'] < timedelta(seconds=secs):
-                    return
-                t['last_update'] = now
-                return f(*args, **kwargs)
-
-            return wrapper
-
-        return dec
 
     def slow(secs):
         def dec(f):
-            t = {'last_update': datetime.now(timezone.utc)}
+            t = {'last_update': datetime.now(timezone.utc) - timedelta(minutes=1)}
 
             async def wrapper(*args, **kwargs):
                 now = datetime.now(timezone.utc)
@@ -394,24 +382,26 @@ if __name__ == '__main__':
 
         return dec
 
-    def sync_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
-        print('sync\t', transferred_bytes, '\t', total_bytes)
-        new_loop = asyncio.new_event_loop()
-        return new_loop.run_until_complete(refresh_progress_status(reply, uploading, transferred_bytes, total_bytes))
 
     async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
         try:
-            print('async\t', transferred_bytes, '\t', total_bytes)
             await reply.edit(
-                f"{'Uploaded' if uploading else 'Downloaded'} {transferred_bytes} out of {total_bytes}"
-                f"({transferred_bytes * 100 / total_bytes}%)")
+                f"{'Uploaded' if uploading else 'Downloaded'} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
+                f"({round(transferred_bytes * 100 / total_bytes, 2)}%)")
         except Exception as exc:
             print(exc)
             return
 
 
-    # endregion
+    def sizeof_fmt(num, suffix='B'):
+        for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+            if abs(num) < 1024.0:
+                return "%3.1f%s%s" % (num, unit, suffix)
+            num /= 1024.0
+        return "%.1f%s%s" % (num, 'Yi', suffix)
 
+
+    # endregion
 
     @bot.on(NewMessage(pattern='/save'))
     async def savexd(event: Union[Message, NewMessage]):
