@@ -32,7 +32,7 @@ if __name__ == '__main__':
     api_hash: str
     bot_token: str
     auth_users: dict
-    zipping: bool
+    zipping: dict
 
 
     async def load():
@@ -66,7 +66,7 @@ if __name__ == '__main__':
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     up_lock_dict = {}
     down_lock_dict = {}
-    zipping = False
+    zipping = {}
     upload_path = '/TG Uploads/'
     slow_time = 2
 
@@ -107,7 +107,7 @@ if __name__ == '__main__':
     @bot.on(NewMessage())
     async def file_handler(event: Union[NewMessage.Event, Message]):
         chatter = str(event.chat_id)
-        if not event.file or event.sticker or event.voice or zipping:
+        if not event.file or event.sticker or event.voice or zipping.get(chatter):
             return
         if chatter not in auth_users.keys():
             return
@@ -130,7 +130,7 @@ if __name__ == '__main__':
     @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+)?([^\s].*)?'))
     async def link_handler(event: Union[NewMessage, Message]):
         chatter = str(event.chat_id)
-        if chatter not in auth_users.keys() or zipping:
+        if chatter not in auth_users.keys() or zipping.get(chatter):
             raise
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
@@ -153,44 +153,48 @@ if __name__ == '__main__':
     async def zip_handler(event: Union[NewMessage.Event, Message]):
         global zipping
         chatter = str(event.chat_id)
-        if chatter not in auth_users.keys() or zipping:
+        if chatter not in auth_users.keys() or zipping.get(chatter):
             raise
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             raise
         folder_path: Path = get_down_path(chatter).joinpath(event.pattern_match.group(1))
-        zipping = True
-        async with bot.conversation(event.chat_id) as conv:
-            r: Message = await conv.send_message('Start sending me files and i\'ll zip and upload them'
-                                                 '\n/stop to start zipping\n/cancel to cancel', reply_to=event)
-            m: Message = await conv.get_response()
-            m_download_list: List[Message] = []
-            while not m.raw_text.startswith(('/cancel', '/stop')):
-                if not m.file or m.sticker or m.voice:
+        zipping[chatter] = True
+        try:
+            async with bot.conversation(event.chat_id) as conv:
+                r: Message = await conv.send_message('Start sending me files and i\'ll zip and upload them'
+                                                     '\n/stop to start zipping\n/cancel to cancel', reply_to=event)
+                m: Message = await conv.get_response()
+                m_download_list: List[Message] = []
+                while not m.raw_text.startswith(('/cancel', '/stop')):
+                    if not m.file or m.sticker or m.voice:
+                        m = await conv.get_response()
+                        continue
+                    m_download_list.append(m)
                     m = await conv.get_response()
-                    continue
-                m_download_list.append(m)
-                m = await conv.get_response()
-            zipping = False
-            if m.raw_text.startswith('/cancel'):
-                await conv.send_message('Ok, cancelled', reply_to=m)
-                return
-            await r.edit('Zip queued')
-            filepaths: List[str] = []
-            for mes in m_download_list:
-                if not mes.file.name:
-                    filename = str(m_download_list.index(mes)) + mes.file.ext
-                else:
-                    filename = mes.file.name
-                async with get_down_lock(chatter):
-                    filepaths.append(await tg_download(mes, r, filename=filename,
-                                                       download_path=folder_path))
-            zip_path = folder_path.joinpath(filename)
-            with PyZipFile(str(zip_path), 'a') as up_zip:
-                for path in filepaths:
-                    up_zip.write(path, folder_path.joinpath(os.path.basename(path)))
-            async with get_up_lock(chatter):
-                await cloud_upload(str(zip_path), r, event)
+                zipping[chatter] = False
+                if m.raw_text.startswith('/cancel'):
+                    await conv.send_message('Ok, cancelled', reply_to=m)
+                    return
+                await r.edit('Zip queued')
+                filepaths: List[str] = []
+                for mes in m_download_list:
+                    if not mes.file.name:
+                        filename = str(m_download_list.index(mes)) + mes.file.ext
+                    else:
+                        filename = mes.file.name
+                    async with get_down_lock(chatter):
+                        filepaths.append(await tg_download(mes, r, filename=filename,
+                                                           download_path=folder_path))
+                zip_path = folder_path.joinpath(filename)
+                with PyZipFile(str(zip_path), 'a') as up_zip:
+                    for path in filepaths:
+                        up_zip.write(path, folder_path.joinpath(os.path.basename(path)))
+                async with get_up_lock(chatter):
+                    await cloud_upload(str(zip_path), r, event)
+        except:
+            zipping[chatter] = False
+            raise
 
 
     # endregion
@@ -236,6 +240,7 @@ if __name__ == '__main__':
     # endregion
 
     # region funcs
+
 
     async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
                           download_path: Path = Path('./downloads')) -> str:
