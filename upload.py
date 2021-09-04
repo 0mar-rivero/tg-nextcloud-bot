@@ -3,7 +3,6 @@ import math
 import re
 import time
 from typing import *
-import aiodav
 from typing import IO
 
 from aiodav.exceptions import OptionNotValid, RemoteParentNotFound
