@@ -120,7 +120,7 @@ if __name__ == '__main__':
                 downloaded_file = await tg_download(event=event, reply=reply, download_path=get_down_path(chatter))
             except:
                 return
-        await reply.reply(f'{os.path.basename(downloaded_file)} upload queued')
+        await reply.edit(f'{os.path.basename(downloaded_file)} upload queued')
         async with get_up_lock(chatter):
             try:
                 await cloud_upload(downloaded_file, reply, event)
