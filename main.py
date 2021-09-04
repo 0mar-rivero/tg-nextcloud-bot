@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import *
 from urllib import request
 from zipfile import PyZipFile
+from zipstream import AioZipStream
 
 import aiofiles
 import telethon
@@ -68,7 +69,7 @@ if __name__ == '__main__':
     down_lock_dict = {}
     zipping = {}
     upload_path = '/TG Uploads/'
-    slow_time = 2
+    slow_time = 5
 
 
     # region users
@@ -158,7 +159,8 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             raise
-        folder_path: Path = get_down_path(chatter).joinpath(event.pattern_match.group(1))
+        zip_name = event.pattern_match.group(1)
+        folder_path: Path = get_down_path(chatter).joinpath(zip_name)
         zipping[chatter] = True
         try:
             async with bot.conversation(event.chat_id) as conv:
@@ -177,21 +179,21 @@ if __name__ == '__main__':
                     await conv.send_message('Ok, cancelled', reply_to=m)
                     return
                 await r.edit('Zip queued')
-                filepaths: List[str] = []
+                files: List[{}] = []
                 for mes in m_download_list:
                     if not mes.file.name:
                         filename = str(m_download_list.index(mes)) + mes.file.ext
                     else:
                         filename = mes.file.name
                     async with get_down_lock(chatter):
-                        filepaths.append(await tg_download(mes, r, filename=filename,
-                                                           download_path=folder_path))
-                zip_path = folder_path.joinpath(filename)
-                with PyZipFile(str(zip_path), 'a') as up_zip:
-                    for path in filepaths:
-                        up_zip.write(path, folder_path.joinpath(os.path.basename(path)))
+                        files.append({'file': await tg_download(mes, r, filename=filename,
+                                                                download_path=folder_path)})
+                zip_path = str(folder_path)+'.zip'
+                await r.edit('Zipping...')
+                await zip_async(zip_path, files, slow(slow_time)(partial(refresh_progress_status, zip_name, r, 'Zipped')))
+                await r.edit(f'{zip_name} zipped')
                 async with get_up_lock(chatter):
-                    await cloud_upload(str(zip_path), r, event)
+                    await cloud_upload(zip_path, r, event)
         except:
             zipping[chatter] = False
             raise
@@ -241,7 +243,6 @@ if __name__ == '__main__':
 
     # region funcs
 
-
     async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
                           download_path: Path = Path('./downloads')) -> str:
         if not filename:
@@ -276,8 +277,8 @@ if __name__ == '__main__':
             await reply.edit(f'{filename} being downloaded')
 
         try:
-            filepath = await event.download_media(download_path, progress_callback=slow(2)(
-                partial(refresh_progress_status, reply, False)))
+            filepath = await event.download_media(download_path, progress_callback=slow(slow_time)(
+                partial(refresh_progress_status, filename, reply, 'Downloaded')))
             await reply.edit(f'{filename} downloaded')
         except Exception as exc:
             print(exc)
@@ -302,8 +303,9 @@ if __name__ == '__main__':
                     uppath += 'copy'
                     file_cloud_name += 'copy'
                 async with aiofiles.open(filepath, 'rb') as file:
-                    await upload.upload_to(cloud_client, path=uppath, buffer=file, buffer_size=os.path.getsize(filepath),
-                                           progress=slow(2)(partial(refresh_progress_status, reply, True)))
+                    await upload.upload_to(cloud_client, path=uppath, buffer=file,
+                                           buffer_size=os.path.getsize(filepath),
+                                           progress=slow(slow_time)(partial(refresh_progress_status, filename,reply, 'Uploaded')))
                 await reply.edit(f'{filename} uploaded correctly')
         except Exception as exc:
             print(exc)
@@ -342,7 +344,7 @@ if __name__ == '__main__':
             await reply.edit(f'Downloading {filename}')
             async with aiofiles.open(download_path.joinpath(filename), 'wb') as o_file:
                 await download_url(o_file, url, file_size,
-                                   callback=slow(2)(partial(refresh_progress_status, reply, False)))
+                                   callback=slow(slow_time)(partial(refresh_progress_status, filename, reply, 'Downloaded')))
             await reply.edit("Link downloaded")
             return str(download_path.joinpath(filename))
         except Exception as e:
@@ -391,21 +393,37 @@ if __name__ == '__main__':
         return dec
 
 
-    async def refresh_progress_status(reply: Message, uploading: bool, transferred_bytes: int, total_bytes: int):
+    async def refresh_progress_status(name: str, reply: Message, operation: str, transferred_bytes: int, total_bytes: int):
         try:
             await reply.edit(
-                f"{'Uploaded' if uploading else 'Downloaded'} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
-                f"({round(transferred_bytes * 100 / total_bytes, 2)}%)")
+                f"{name}:\n"
+                f"{operation} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
+                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)")
         except Exception as exc:
             print(exc)
             return
+
+
+    async def zip_async(zipname, files, callback=None):
+        chunk_size = 32 * 1024
+        aio_zip = AioZipStream(files, chunksize=chunk_size)
+        size = 0
+        current = 0
+        for file in files:
+            size += os.path.getsize(file['file'])
+        async with aiofiles.open(zipname, mode='wb') as z:
+            async for chunk in aio_zip.stream():
+                if callback:
+                    current += len(chunk)
+                    await callback(chunk, size)
+                await z.write(chunk)
 
 
     def sizeof_fmt(num, suffix='B'):
         for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
             if abs(num) < 1024.0:
                 return "%3.1f%s%s" % (num, unit, suffix)
-            num /= 1024.0
+            num /= 1024.00
         return "%.1f%s%s" % (num, 'Yi', suffix)
 
 
