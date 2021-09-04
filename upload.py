@@ -1,5 +1,6 @@
 import asyncio
 import math
+import re
 import time
 from typing import *
 import aiodav
@@ -106,4 +107,9 @@ async def upload_to(
                 chunk_index += 1
             else:
                 chunk_name = urn.quote()
-            await self._execute_request(action='upload', path=chunk_name, data=chunk, headers_ext=headers)
+            try:
+                await self._execute_request(action='upload', path=chunk_name, data=chunk, headers_ext=headers)
+            except Exception as e:
+                if re.match(r'Request to .+ failed with code (504) and message: .+', str(e))
+                    return
+                raise e

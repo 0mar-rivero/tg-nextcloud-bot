@@ -288,7 +288,7 @@ if __name__ == '__main__':
 
         try:
             async with Client('https://nube.uclv.cu/remote.php/webdav', login=user['username'],
-                              password=user['password'], chunk_size=1024 * 1024) as cloud_client:
+                              password=user['password'], chunk_size=10 * 1024 * 1024) as cloud_client:
                 if not await cloud_client.exists(upload_path):
                     await cloud_client.create_directory(upload_path)
                 file_cloud_name = filename
@@ -298,9 +298,10 @@ if __name__ == '__main__':
                 async with aiofiles.open(filepath, 'rb') as file:
                     await upload.upload_to(cloud_client, path=uppath, buffer=file, buffer_size=os.path.getsize(filepath),
                                            progress=slow(2)(partial(refresh_progress_status, reply, True)))
-                    await reply.edit(f'{filename} uploaded correctly')
+                await reply.edit(f'{filename} uploaded correctly')
         except Exception as exc:
             print(exc)
+            await reply.edit(f'{filename} could not be uploaded')
             raise exc
 
 
