@@ -110,6 +110,6 @@ async def upload_to(
             try:
                 await self._execute_request(action='upload', path=chunk_name, data=chunk, headers_ext=headers)
             except Exception as e:
-                if re.match(r'Request to .+ failed with code (504) and message: .+', str(e))
+                if re.match(r'Request to .+ failed with code (504) and message: .+', str(e)):
                     return
                 raise e
