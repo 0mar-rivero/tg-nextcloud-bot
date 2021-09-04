@@ -268,6 +268,7 @@ if __name__ == '__main__':
                         raise
             else:
                 filename = event.file.name
+        os.makedirs(download_path, exist_ok=True)
         if filename in os.listdir(download_path):
             await reply.edit(f'{filename} already downloaded')
             return str(download_path.joinpath(filename))
