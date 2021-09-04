@@ -114,12 +114,13 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             return
-        reply: Message = await event.reply('File queued')
+        reply: Message = await event.reply('File download queued')
         async with get_down_lock(chatter):
             try:
                 downloaded_file = await tg_download(event=event, reply=reply, download_path=get_down_path(chatter))
             except:
                 return
+        await reply.reply(f'{os.path.basename(downloaded_file)} upload queued')
         async with get_up_lock(chatter):
             try:
                 await cloud_upload(downloaded_file, reply, event)
@@ -142,9 +143,10 @@ if __name__ == '__main__':
                 filename = str(event.pattern_match.group(2)).strip()
         except:
             filename = None
-        reply: Message = await event.respond(f'{filename if filename else url} queued')
+        reply: Message = await event.respond(f'{filename if filename else url} download queued')
         async with get_down_lock(chatter):
             filepath = await url_download(reply, url, filename, get_down_path(chatter))
+        await reply.edit(f'{os.path.basename(filepath)} upload queued')
         async with get_up_lock(chatter):
             await cloud_upload(filepath, reply, event)
 
@@ -177,7 +179,7 @@ if __name__ == '__main__':
                 if m.raw_text.startswith('/cancel'):
                     await conv.send_message('Ok, cancelled', reply_to=m)
                     return
-                await r.edit('Zip queued')
+                await r.edit(f'{zip_name} download queued')
                 files: List[{}] = []
                 for mes in m_download_list:
                     if not mes.file.name:
@@ -190,7 +192,7 @@ if __name__ == '__main__':
                 zip_path = str(folder_path)+'.zip'
                 await r.edit('Zipping...')
                 await zip_async(zip_path, files, slow(slow_time)(partial(refresh_progress_status, zip_name, r, 'Zipped')))
-                await r.edit(f'{zip_name} zipped')
+                await r.edit(f'{zip_name} upload queued')
                 async with get_up_lock(chatter):
                     await cloud_upload(zip_path, r, event)
         except:
@@ -414,7 +416,7 @@ if __name__ == '__main__':
             async for chunk in aio_zip.stream():
                 if callback:
                     current += len(chunk)
-                    await callback(chunk, size)
+                    await callback(current, size)
                 await z.write(chunk)
 
 
