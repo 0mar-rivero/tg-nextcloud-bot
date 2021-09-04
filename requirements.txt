@@ -1,6 +1,5 @@
 aiozipstream==0.4
 Telethon==1.23.0
-zipstream==1.1.4
 Telethon==1.23.0
 aiohttp==3.7.4.post0
 aiofiles==0.7.0

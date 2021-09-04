@@ -8,7 +8,6 @@ from functools import partial
 from pathlib import Path
 from typing import *
 from urllib import request
-from zipfile import PyZipFile
 from zipstream import AioZipStream
 
 import aiofiles
