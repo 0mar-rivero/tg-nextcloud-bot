@@ -16,6 +16,7 @@ from aiodav import Client
 from telethon.events import NewMessage
 from telethon.tl.custom import Message
 
+import upload
 from download import download_url
 
 logging.basicConfig(format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
@@ -295,8 +296,8 @@ if __name__ == '__main__':
                     uppath += 'copy'
                     file_cloud_name += 'copy'
                 async with aiofiles.open(filepath, 'rb') as file:
-                    await cloud_client.upload_to(uppath, file, buffer_size=os.path.getsize(filepath),
-                                                 progress=slow(2)(partial(refresh_progress_status, reply, True)))
+                    await upload.upload_to(cloud_client, path=uppath, buffer=file, buffer_size=os.path.getsize(filepath),
+                                           progress=slow(2)(partial(refresh_progress_status, reply, True)))
                     await reply.edit(f'{filename} uploaded correctly')
         except Exception as exc:
             print(exc)

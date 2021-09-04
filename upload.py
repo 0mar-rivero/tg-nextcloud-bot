@@ -1,72 +1,109 @@
 import asyncio
-import os
-import time
 import math
-from typing import List
-from threading import Thread
+import time
+from typing import *
+import aiodav
+from typing import IO
+
+from aiodav.exceptions import OptionNotValid, RemoteParentNotFound
+from aiodav.urn import Urn
+from aiofiles.threadpool.binary import AsyncBufferedIOBase
 
 
-def _put_file_chunked(self, remote_path, local_source_file, callback=None, **kwargs):
-    """Uploads a file using chunks. If the file is smaller than
-    ``chunk_size`` it will be uploaded directly.
-
-    :param remote_path: path to the target file. A target directory can
-    also be specified instead by appending a "/"
-    :param local_source_file: path to the local file to upload
-    :param \*\*kwargs: optional arguments that ``put_file`` accepts
-    :returns: True if the operation succeeded, False otherwise
-    :raises: HTTPResponseError in case an HTTP error status was returned
+async def upload_to(
+        self,
+        path: Union[str, "os.PathLike[str]"],
+        buffer: Union[IO, AsyncGenerator[bytes, None]],
+        buffer_size: Optional[int] = None,
+        progress: Optional[Callable[[int, int, Tuple], None]] = None,
+        progress_args: Optional[Tuple] = ()
+) -> None:
     """
-    chunk_size = kwargs.get('chunk_size', 1024 * 1024)
-    result = True
-    transfer_id = int(time.time())
+    Uploads file from buffer to remote path on WebDAV server.
+    More information you can find by link http://webdav.org/specs/rfc4918.html#METHOD_PUT
 
-    remote_path = self._normalize_path(remote_path)
-    if remote_path.endswith('/'):
-        remote_path += os.path.basename(local_source_file)
+    Parameters:
+        path (``str``):
+            The path to remote resource
 
-    stat_result = os.stat(local_source_file)
+        buffer (``IO``)
+            IO like object to read the data or a asynchronous generator to get buffer data.
+            In order do you select use a async generator `progress` callback cannot be called.
 
-    file_handle = open(local_source_file, 'rb', 8192)
-    file_handle.seek(0, os.SEEK_END)
-    size = file_handle.tell()
-    file_handle.seek(0)
+        progress (``callable``, *optional*):
+            Pass a callback function to view the file transmission progress.
+            The function must take *(current, total)* as positional arguments (look at Other Parameters below for a
+            detailed description) and will be called back each time a new file chunk has been successfully
+            transmitted.
+
+        progress_args (``tuple``, *optional*):
+            Extra custom arguments for the progress callback function.
+            You can pass anything you need to be available in the progress callback scope.
+
+    Other Parameters:
+        current (``int``):
+            The amount of bytes transmitted so far.
+
+        total (``int``):
+            The total size of the file.
+
+        *args (``tuple``, *optional*):
+            Extra custom arguments as defined in the ``progress_args`` parameter.
+            You can either keep ``*args`` or add every single extra argument in your function signature.
+
+    Example:
+        .. code-block:: python
+
+            ...
+            # Keep track of the progress while uploading
+            def progress(current, total):
+                print(f"{current * 100 / total:.1f}%")
+
+            async with aiofiles.open('file.zip', 'rb') as file:
+                await client.upload_to('/path/to/file.zip', file, progress=progress)
+            ...
+    """
+
+    urn = Urn(path)
+    if urn.is_dir():
+        raise OptionNotValid(name="path", value=path)
+
+    if not (await self.exists(urn.parent())):
+        raise RemoteParentNotFound(urn.path())
 
     headers = {}
-    if kwargs.get('keep_mtime', True):
-        headers['X-OC-MTIME'] = str(int(stat_result.st_mtime))
+    if callable(progress) and not asyncio.iscoroutinefunction(buffer):
 
-    if size == 0:
-        return self._make_dav_request(
-            'PUT',
-            remote_path,
-            data='',
-            headers=headers
-        )
+        async def file_sender(buff: IO):
+            current = 0
 
-    chunk_count = int(math.ceil(float(size) / float(chunk_size)))
+            if asyncio.iscoroutinefunction(progress):
+                await progress(current, buffer_size, *progress_args)
+            else:
+                progress(current, buffer_size, *progress_args)
 
-    if chunk_count > 1:
-        headers['OC-CHUNKED'] = '1'
-    progress_list: List[asyncio.Task] = []
-    for chunk_index in range(0, int(chunk_count)):
-        data = file_handle.read(chunk_size)
-        if chunk_count > 1:
-            chunk_name = '%s-chunking-%s-%i-%i' % \
-                         (remote_path, transfer_id, chunk_count,
-                          chunk_index)
-        else:
-            chunk_name = remote_path
-        time.sleep(1)
-        if not self._make_dav_request(
-                'PUT',
-                chunk_name,
-                data=data,
-                headers=headers
-        ):
-            result = False
-            break
-        hilo = Thread(target=callback, args=(min(chunk_size * (chunk_index + 1), size), size))
-        hilo.start()
-    file_handle.close()
-    return result
+            while current < buffer_size:
+                chunk = await buff.read(self._chunk_size) if isinstance(buff, AsyncBufferedIOBase) \
+                    else buff.read(self._chunk_size)
+                if not chunk:
+                    break
+                current += len(chunk)
+
+                if asyncio.iscoroutinefunction(progress):
+                    await progress(current, buffer_size, *progress_args)
+                else:
+                    progress(current, buffer_size, *progress_args)
+                yield chunk
+        chunk_count = int(math.ceil(float(buffer_size) / float(self._chunk_size)))
+        transfer_id = int(time.time())
+        chunk_index = 0
+        async for chunk in file_sender(buffer):
+            if chunk_count > 1:
+                headers['OC-CHUNKED'] = '1'
+                chunk_name = '%s-chunking-%s-%i-%i' % \
+                             (urn.quote(), transfer_id, chunk_count,
+                              chunk_index)
+                chunk_index += 1
+            else:
+                chunk_name = urn.quote()
+            await self._execute_request(action='upload', path=chunk_name, data=chunk, headers_ext=headers)
