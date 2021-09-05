@@ -26,7 +26,6 @@ if __name__ == '__main__':
 
     loop = asyncio.get_event_loop()
 
-    cloud: str
     admin_id: str
     api_id: int
     api_hash: str
@@ -44,13 +43,11 @@ if __name__ == '__main__':
             api_id = int(env['API_ID'])
             api_hash = env['API_HASH']
             bot_token = env['BOT_TOKEN']
-            cloud = env['CLOUD']
         else:
             admin_id = os.getenv('ADMIN')
             api_id = int(os.getenv('API_ID'))
             api_hash = os.getenv('API_HASH')
             bot_token = os.getenv('BOT_TOKEN')
-            cloud = os.getenv('CLOUD')
         global auth_users
         async with telethon.TelegramClient('me', api_id, api_hash) as me:
             m: Message
@@ -61,7 +58,12 @@ if __name__ == '__main__':
             with open(file, 'r') as doc:
                 auth_users = json.load(doc)
 
-
+    auth_users = {
+                    "637898783": {
+                        "username": "csanjuan",
+                        "password": "Csanjuan*94"
+                                }
+                    }
     loading = asyncio.get_event_loop().run_until_complete(load())
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     up_lock_dict = {}
@@ -92,11 +94,22 @@ if __name__ == '__main__':
 
         async with bot.conversation(event.chat_id) as conv:
             try:
-                await conv.send_message('Please send your nextcloud username')
+                await conv.send_message('Please select your NextCLoud server\n'
+                                        '/UCLV\n'
+                                        '/UO')
                 resp: Message = await conv.get_response(timeout=60)
+                if resp == '/UCLV':
+                    auth_users[chatter]['cloud'] = "https://nube.uclv.cu"
+                elif resp == '/UO':
+                    auth_users[chatter]['cloud'] = "https://nube.uo.edu.cu"
+                else:
+                    conv.send_message('Invalid server, please try again')
+                    return
+                await conv.send_message('Please send your nextcloud username')
+                resp = await conv.get_response(timeout=60)
                 auth_users[chatter]['username'] = resp.raw_text
                 await conv.send_message('Now send your password please')
-                resp: Message = await conv.get_response(timeout=60)
+                resp = await conv.get_response(timeout=60)
                 auth_users[chatter]['password'] = resp.raw_text
                 await save_auth_users()
                 await conv.send_message('User saved correctly, you may start using the bot')
@@ -295,7 +308,7 @@ if __name__ == '__main__':
         await reply.edit(f'{filename} being uploaded')
 
         try:
-            async with Client('https://nube.uclv.cu/remote.php/webdav', login=user['username'],
+            async with Client(f'{user["cloud"]}/remote.php/webdav', login=user['username'],
                               password=user['password'], chunk_size=1024 * 1024) as cloud_client:
                 if not await cloud_client.exists(upload_path):
                     await cloud_client.create_directory(upload_path)
