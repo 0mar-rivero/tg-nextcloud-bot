@@ -98,12 +98,12 @@ if __name__ == '__main__':
                                         '/UCLV\n'
                                         '/UO')
                 resp: Message = await conv.get_response(timeout=60)
-                if resp == '/UCLV':
+                if resp.raw_text == '/UCLV':
                     auth_users[chatter]['cloud'] = "https://nube.uclv.cu"
-                elif resp == '/UO':
+                elif resp.raw_text == '/UO':
                     auth_users[chatter]['cloud'] = "https://nube.uo.edu.cu"
                 else:
-                    conv.send_message('Invalid server, please try again')
+                    await conv.send_message('Invalid server, please try again')
                     return
                 await conv.send_message('Please send your nextcloud username')
                 resp = await conv.get_response(timeout=60)
