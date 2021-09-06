@@ -470,15 +470,14 @@ if __name__ == '__main__':
         return dec
 
 
-    async def refresh_progress_status(name: str, reply: Message, button: List, operation: str, transferred_bytes: int,
+    async def refresh_progress_status(name: str, reply: Message, operation: str, button: List, transferred_bytes: int,
                                       total_bytes: int):
         try:
             await reply.edit(
                 f"{name}:\n"
                 f"{operation} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
                 f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)", buttons=button)
-        except Exception as exc:
-            print(exc)
+        finally:
             return
 
 
