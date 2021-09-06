@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 from datetime import timezone, timedelta, datetime
 from functools import partial
 from pathlib import Path
@@ -13,8 +14,8 @@ from zipstream import AioZipStream
 import aiofiles
 import telethon
 from aiodav import Client
-from telethon.events import NewMessage
-from telethon.tl.custom import Message
+from telethon.events import NewMessage, CallbackQuery
+from telethon.tl.custom import Message, Button, MessageButton
 
 import upload
 from download import download_url
@@ -34,6 +35,7 @@ if __name__ == '__main__':
     zipping: dict
     users_channel: int
     users_post_id: int
+
 
     async def load_env():
         global admin_id, api_id, api_hash, bot_token, auth_users, users_channel, users_post_id
@@ -62,11 +64,13 @@ if __name__ == '__main__':
         with open(file, 'r') as doc:
             auth_users = json.load(doc)
 
+
     asyncio.get_event_loop().run_until_complete(load_env())
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
     asyncio.get_event_loop().run_until_complete(load_users())
     up_lock_dict = {}
     down_lock_dict = {}
+    tasks_dict = {}
     zipping = {}
     upload_path = '/TG Uploads/'
     slow_time = 5
@@ -126,18 +130,15 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             return
+        user_tasks = get_user_task_dict(chatter)
         reply: Message = await event.reply('File download queued')
-        async with get_down_lock(chatter):
-            try:
-                downloaded_file = await tg_download(event=event, reply=reply, download_path=get_down_path(chatter))
-            except:
-                return
-        await reply.edit(f'{os.path.basename(downloaded_file)} upload queued')
-        async with get_up_lock(chatter):
-            try:
-                await cloud_upload(downloaded_file, reply, event)
-            except Exception as exc:
-                raise exc
+        button = [Button.inline('Cancel', b'cancel_task=' + str(reply.id).encode())]
+        await reply.edit('File download queued', buttons=button)
+        user_tasks[reply.id] = loop.create_task(file_task(event, reply, chatter, button))
+        try:
+            await user_tasks[reply.id]
+        finally:
+            pass
 
 
     @bot.on(NewMessage(pattern=r'/link\s([^\s]+)(?:\s+\|\s+)?([^\s].*)?'))
@@ -148,6 +149,7 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             raise
+        user_tasks = get_user_task_dict(chatter)
         url = event.pattern_match.group(1)
         filename = None
         try:
@@ -156,11 +158,13 @@ if __name__ == '__main__':
         except:
             filename = None
         reply: Message = await event.respond(f'{filename if filename else url} download queued')
-        async with get_down_lock(chatter):
-            filepath = await url_download(reply, url, filename, get_down_path(chatter))
-        await reply.edit(f'{os.path.basename(filepath)} upload queued')
-        async with get_up_lock(chatter):
-            await cloud_upload(filepath, reply, event)
+        button = [Button.inline('Cancel', b'cancel_task=' + str(reply.id).encode())]
+        await reply.edit(f'{filename if filename else url} download queued', buttons=button)
+        user_tasks[reply.id] = loop.create_task(link_task(event, reply, chatter, url, filename, button))
+        try:
+            await user_tasks[reply.id]
+        finally:
+            pass
 
 
     @bot.on(NewMessage(pattern=r'/zip\s(.+)'))
@@ -172,6 +176,7 @@ if __name__ == '__main__':
         if not auth_users[chatter]['username']:
             await event.respond('Please type /login')
             raise
+        user_tasks = get_user_task_dict(chatter)
         zip_name = event.pattern_match.group(1)
         folder_path: Path = get_down_path(chatter).joinpath(zip_name)
         zipping[chatter] = True
@@ -191,31 +196,31 @@ if __name__ == '__main__':
                 if m.raw_text.startswith('/cancel'):
                     await conv.send_message('Ok, cancelled', reply_to=m)
                     return
-                await r.edit(f'{zip_name} download queued')
-                files: List[{}] = []
-                for mes in m_download_list:
-                    if not mes.file.name:
-                        filename = str(m_download_list.index(mes)) + mes.file.ext
-                    else:
-                        filename = mes.file.name
-                    async with get_down_lock(chatter):
-                        files.append({'file': await tg_download(mes, r, filename=filename,
-                                                                download_path=folder_path)})
-                zip_path = str(folder_path)+'.zip'
-                await r.edit('Zipping...')
-                await zip_async(zip_path, files, slow(slow_time)(partial(refresh_progress_status, zip_name, r, 'Zipped')))
-                await r.edit(f'{zip_name} upload queued')
-                async with get_up_lock(chatter):
-                    await cloud_upload(zip_path, r, event)
+                button = [Button.inline('Cancel', b'cancel_task=' + str(r.id).encode())]
+                await r.edit(f'{zip_name} download queued', buttons=button)
+                user_tasks[r.id] = loop.create_task(
+                    zip_task(m_download_list, folder_path, r, zip_name, chatter, event, button))
+                try:
+                    await user_tasks[r.id]
+                finally:
+                    pass
         except:
             zipping[chatter] = False
             raise
 
 
+    @bot.on(CallbackQuery(data=re.compile(b'cancel_task=(\d+)')))
+    async def cancel_handler(event: CallbackQuery):
+        chatter = str(event.chat_id)
+        task_to_cancel = int(event.data_match.group(1).decode())
+        user_tasks = get_user_task_dict(chatter)
+        user_tasks[task_to_cancel].cancel()
+        await bot.edit_message(int(chatter), message=task_to_cancel, text='Cancelled')
+
+
     # endregion
 
     # region admin
-
 
     @bot.on(NewMessage(pattern=r'/add_user_(-?\d+)'))
     async def add_user(event: Union[NewMessage.Event, Message]):
@@ -255,10 +260,60 @@ if __name__ == '__main__':
 
     # endregion
 
+    # region tasks
+
+
+    async def zip_task(message_download_list: List[Message], folder_path: Path, reply_message: Message, zip_name: str,
+                       chatter: str, event, button):
+
+        files: List[{}] = []
+        for mes in message_download_list:
+            if not mes.file.name:
+                filename = str(message_download_list.index(mes)) + mes.file.ext
+            else:
+                filename = mes.file.name
+            async with get_down_lock(chatter):
+                files.append({'file': await tg_download(mes, reply_message, filename=filename,
+                                                        download_path=folder_path, button=button)})
+        zip_path = str(folder_path) + '.zip'
+        await reply_message.edit('Zipping...', buttons=button)
+        await zip_async(zip_path, files, slow(slow_time)(
+            partial(refresh_progress_status, zip_name, reply_message, 'Zipped', button=button)))
+        await reply_message.edit(f'{zip_name} upload queued', buttons=button)
+        async with get_up_lock(chatter):
+            await cloud_upload(zip_path, reply_message, event, button=button)
+
+
+    async def file_task(event, reply_message, chatter, button):
+        async with get_down_lock(chatter):
+            try:
+                downloaded_file = await tg_download(event=event, reply=reply_message,
+                                                    download_path=get_down_path(chatter), button=button)
+            except:
+                return
+        await reply_message.edit(f'{os.path.basename(downloaded_file)} upload queued', buttons=button)
+        async with get_up_lock(chatter):
+            try:
+                await cloud_upload(downloaded_file, reply_message, event, button)
+            except Exception as exc:
+                raise exc
+
+
+    async def link_task(event, reply_message, chatter, url, filename, button):
+        async with get_down_lock(chatter):
+            filepath = await url_download(reply_message, url, filename, get_down_path(chatter), button=button)
+        await reply_message.edit(f'{os.path.basename(filepath)} upload queued', buttons=button)
+        async with get_up_lock(chatter):
+            await cloud_upload(filepath, reply_message, event, button=button)
+
+
+    # endregion
+
     # region funcs
 
     async def tg_download(event: Union[NewMessage.Event, Message], reply, filename: str = None,
-                          download_path: Path = Path('./downloads')) -> str:
+                          download_path: Path = Path('./downloads'), button=None) -> str:
+
         if not filename:
             if not event.file.name:
                 async with bot.conversation(event.chat_id) as conv:
@@ -285,15 +340,15 @@ if __name__ == '__main__':
                 filename = event.file.name
         os.makedirs(download_path, exist_ok=True)
         if filename in os.listdir(download_path):
-            await reply.edit(f'{filename} already downloaded')
+            await reply.edit(f'{filename} already downloaded', buttons=button)
             return str(download_path.joinpath(filename))
         else:
-            await reply.edit(f'{filename} being downloaded')
+            await reply.edit(f'{filename} being downloaded', buttons=button)
 
         try:
             filepath = await event.download_media(download_path, progress_callback=slow(slow_time)(
-                partial(refresh_progress_status, filename, reply, 'Downloaded')))
-            await reply.edit(f'{filename} downloaded')
+                partial(refresh_progress_status, filename, reply, 'Downloaded', button)))
+            await reply.edit(f'{filename} downloaded', buttons=button)
         except Exception as exc:
             print(exc)
             await reply.edit(f'{filename} could not be downloaded\n{exc}')
@@ -301,11 +356,11 @@ if __name__ == '__main__':
         return filepath
 
 
-    async def cloud_upload(filepath: str, reply: Message, event: Union[NewMessage.Event, Message]):
+    async def cloud_upload(filepath: str, reply: Message, event: Union[NewMessage.Event, Message], button=None):
         filename = os.path.basename(filepath)
         uppath = upload_path + filename
         user = auth_users[str(event.chat_id)]
-        await reply.edit(f'{filename} being uploaded')
+        await reply.edit(f'{filename} being uploaded', buttons=button)
 
         try:
             async with Client(f'{user["cloud"]}/remote.php/webdav', login=user['username'],
@@ -319,7 +374,8 @@ if __name__ == '__main__':
                 async with aiofiles.open(filepath, 'rb') as file:
                     await upload.upload_to(cloud_client, path=uppath, buffer=file,
                                            buffer_size=os.path.getsize(filepath),
-                                           progress=slow(slow_time)(partial(refresh_progress_status, filename,reply, 'Uploaded')))
+                                           progress=slow(slow_time)(
+                                               partial(refresh_progress_status, filename, reply, 'Uploaded', button)))
                 await reply.edit(f'{filename} uploaded correctly')
         except Exception as exc:
             print(exc)
@@ -327,7 +383,8 @@ if __name__ == '__main__':
             raise exc
 
 
-    async def url_download(reply, url: str, filename: str = None, download_path: Path = Path('./downloads')) -> str:
+    async def url_download(reply, url: str, filename: str = None, download_path: Path = Path('./downloads'),
+                           button=None) -> str:
         try:
             req = request.Request(url)
             req.add_header("User-Agent",
@@ -355,11 +412,12 @@ if __name__ == '__main__':
             if not file_size:
                 await reply.edit("Invalid file, has no filesize")
                 raise Exception("Invalid file, has no filesize")
-            await reply.edit(f'Downloading {filename}')
+            await reply.edit(f'Downloading {filename}', buttons=button)
             async with aiofiles.open(download_path.joinpath(filename), 'wb') as o_file:
                 await download_url(o_file, url, file_size,
-                                   callback=slow(slow_time)(partial(refresh_progress_status, filename, reply, 'Downloaded')))
-            await reply.edit("Link downloaded")
+                                   callback=slow(slow_time)(
+                                       partial(refresh_progress_status, filename, reply, 'Downloaded', button)))
+            await reply.edit("Link downloaded", buttons=button)
             return str(download_path.joinpath(filename))
         except Exception as e:
             await reply.respond(str(e))
@@ -385,6 +443,12 @@ if __name__ == '__main__':
         return down_lock_dict[user]
 
 
+    def get_user_task_dict(user: str):
+        if not tasks_dict.get(user):
+            tasks_dict[user] = {}
+        return tasks_dict[user]
+
+
     def get_down_path(user: str) -> Path:
         os.makedirs(f'./downloads/{user}', exist_ok=True)
         return Path(f'./downloads/{user}/')
@@ -406,14 +470,14 @@ if __name__ == '__main__':
         return dec
 
 
-    async def refresh_progress_status(name: str, reply: Message, operation: str, transferred_bytes: int, total_bytes: int):
+    async def refresh_progress_status(name: str, reply: Message, operation: str, transferred_bytes: int,
+                                      total_bytes: int, button: List):
         try:
             await reply.edit(
                 f"{name}:\n"
                 f"{operation} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
-                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)")
+                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)", buttons=button)
         except Exception as exc:
-            print(exc)
             return
 
 
