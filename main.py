@@ -32,40 +32,39 @@ if __name__ == '__main__':
     bot_token: str
     auth_users: dict
     zipping: dict
+    users_channel: int
+    users_post_id: int
 
-
-    async def load():
-        global admin_id, api_id, api_hash, bot_token, cloud, auth_users
+    async def load_env():
+        global admin_id, api_id, api_hash, bot_token, auth_users, users_channel, users_post_id
         if "env.json" in os.listdir('.'):
-            with open('env.json', 'r') as envdoc:
-                env: dict = json.load(envdoc)
-            admin_id = env['ADMIN']
+            with open('env.json', 'r') as env_doc:
+                env: dict = json.load(env_doc)
+            admin_id = env['ADMIN_ID']
             api_id = int(env['API_ID'])
             api_hash = env['API_HASH']
             bot_token = env['BOT_TOKEN']
+            users_channel = int(env['USERS_CHANNEL'])
+            users_post_id = int(env['USERS_POST_ID'])
         else:
-            admin_id = os.getenv('ADMIN')
+            admin_id = os.getenv('ADMIN_ID')
             api_id = int(os.getenv('API_ID'))
             api_hash = os.getenv('API_HASH')
             bot_token = os.getenv('BOT_TOKEN')
-        global auth_users
-        async with telethon.TelegramClient('me', api_id, api_hash) as me:
-            m: Message
-            async for message in me.iter_messages(-525481046):
-                m = message
-                break
-            file = await me.download_media(m, 'users/users.json')
-            with open(file, 'r') as doc:
-                auth_users = json.load(doc)
+            users_channel = int(os.getenv('USERS_CHANNEL'))
+            users_post_id = int(os.getenv('USERS_POST_ID'))
 
-    auth_users = {
-                    "637898783": {
-                        "username": "csanjuan",
-                        "password": "Csanjuan*94"
-                                }
-                    }
-    loading = asyncio.get_event_loop().run_until_complete(load())
+
+    async def load_users():
+        global auth_users, bot, users_channel, users_post_id
+        users_message: Message = await bot.get_messages(users_channel, ids=users_post_id)
+        file = await bot.download_media(users_message, 'users/users.json')
+        with open(file, 'r') as doc:
+            auth_users = json.load(doc)
+
+    asyncio.get_event_loop().run_until_complete(load_env())
     bot = telethon.TelegramClient('bot', api_id=api_id, api_hash=api_hash).start(bot_token=bot_token)
+    asyncio.get_event_loop().run_until_complete(load_users())
     up_lock_dict = {}
     down_lock_dict = {}
     zipping = {}
@@ -216,6 +215,7 @@ if __name__ == '__main__':
     # endregion
 
     # region admin
+
 
     @bot.on(NewMessage(pattern=r'/add_user_(-?\d+)'))
     async def add_user(event: Union[NewMessage.Event, Message]):
@@ -370,8 +370,7 @@ if __name__ == '__main__':
     async def save_auth_users():
         with open('users/users.json', 'w') as doc:
             json.dump(auth_users, doc)
-        async with telethon.TelegramClient('me', api_id, api_hash) as me:
-            await me.send_file(-525481046, file='users/users.json', caption='users')
+        await bot.edit_message(entity=users_channel, message=users_post_id, file='users/users.json')
 
 
     def get_up_lock(user: str) -> asyncio.Lock:

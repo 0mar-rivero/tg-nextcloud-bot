@@ -22,8 +22,16 @@
         "description": "Get this value from https://my.telegram.org/apps",
         "value": ""
       },
-      "ADMIN": {
+      "ADMIN_ID": {
         "description": "Your(owner's) telegram id",
+        "value": ""
+      },
+      "USERS_CHANNEL": {
+        "description": "Channel where 'users.json' will be stored",
+        "value": ""
+      },
+      "USERS_POST_ID": {
+        "description": "Post where 'users.json' will be stored",
         "value": ""
       }
     },
