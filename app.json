@@ -9,9 +9,6 @@
       "bot",
       "uploader"
     ],
-    "success_url": "https://t.me/TNextCloud_Bot",
-    "website": "https://github.com/0mar-rivero/tg-nextcloud-bot",
-    "repository": "https://github.com/0mar-rivero/tg-nextcloud-bot",
     "env": {
       "BOT_TOKEN": {
         "description": "Make a bot from https://t.me/BotFather and enter the token here.",
@@ -28,19 +25,11 @@
       "ADMIN": {
         "description": "Your(owner's) telegram id",
         "value": ""
-      },
-      "CLOUD": {
-        "description": "Your owncloud url",
-        "value": "https://nube.uclv.cu/"
       }
     },
     "addons": [
     ],
-    "buildpacks": [{
-      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest"
-    }, {
-      "url": "heroku/python"
-    }],
+    "buildpacks": [],
     "formation": {
       "worker": {
         "quantity": 1,
