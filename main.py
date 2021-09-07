@@ -476,7 +476,7 @@ if __name__ == '__main__':
             await reply.edit(
                 f"{name}:\n"
                 f"{operation} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
-                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)",)
+                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)", buttons=button)
         finally:
             return
 
