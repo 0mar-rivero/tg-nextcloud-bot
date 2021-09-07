@@ -278,7 +278,7 @@ if __name__ == '__main__':
         zip_path = str(folder_path) + '.zip'
         await reply_message.edit('Zipping...', buttons=button)
         await zip_async(zip_path, files, slow(slow_time)(
-            partial(refresh_progress_status, zip_name, reply_message, 'Zipped', button=button)))
+            partial(refresh_progress_status, zip_name, reply_message, 'Zipped', button)))
         await reply_message.edit(f'{zip_name} upload queued', buttons=button)
         async with get_up_lock(chatter):
             await cloud_upload(zip_path, reply_message, event, button=button)
@@ -476,7 +476,7 @@ if __name__ == '__main__':
             await reply.edit(
                 f"{name}:\n"
                 f"{operation} {sizeof_fmt(transferred_bytes)} out of {sizeof_fmt(total_bytes)}"
-                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)", buttons=button)
+                f"(\n{round(transferred_bytes * 100 / total_bytes, 2)}%)",)
         finally:
             return
 
