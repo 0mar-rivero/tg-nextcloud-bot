@@ -196,18 +196,20 @@ if __name__ == '__main__':
                 if m.raw_text.startswith('/cancel'):
                     await conv.send_message('Ok, cancelled', reply_to=m)
                     return
-                button = [Button.inline('Cancel', b'cancel_task=' + str(r.id).encode())]
-                await r.edit(f'{zip_name} download queued', buttons=button)
-                user_tasks[r.id] = loop.create_task(
-                    zip_task(m_download_list, folder_path, r, zip_name, chatter, event, button))
-                try:
-                    await user_tasks[r.id]
-                finally:
-                    pass
         except:
             zipping[chatter] = False
             raise
-
+        try:
+            button = [Button.inline('Cancel', b'cancel_task=' + str(r.id).encode())]
+            await r.edit(f'{zip_name} download queued', buttons=button)
+            user_tasks[r.id] = loop.create_task(
+                zip_task(m_download_list, folder_path, r, zip_name, chatter, event, button))
+            try:
+                await user_tasks[r.id]
+            finally:
+                pass
+        except:
+            raise
 
     @bot.on(CallbackQuery(data=re.compile(b'cancel_task=(\d+)')))
     async def cancel_handler(event: CallbackQuery):
