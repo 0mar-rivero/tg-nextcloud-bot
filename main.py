@@ -153,7 +153,7 @@ if __name__ == '__main__':
         url = event.pattern_match.group(1)
         filename = None
         try:
-            if not event.pattern_match.group(2).strip():
+            if event.pattern_match.group(2).strip():
                 filename = str(event.pattern_match.group(2)).strip()
         except:
             filename = None
